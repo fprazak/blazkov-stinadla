@@ -130,26 +130,38 @@ function wireEvents() {
   $("btn-logout").addEventListener("click", logout);
 }
 
-// --- najdi (jedinou) hru ----------------------------------------------
+// --- najdi hru (přednostně pevné id "stinadla") -----------------------
 async function loadGame() {
-  const snap = await getDocs(collection(db, "games"));
-  if (snap.empty) {
-    flash("login-msg", "bad", 'Žádná hra zatím neexistuje. Spusť <a class="back-link" href="seed.html">seed.html</a>.');
-    return;
+  // 1) zkus pevné id "stinadla"
+  let gameDoc = null;
+  const fixed = await getDoc(doc(db, "games", "stinadla"));
+  if (fixed.exists()) {
+    gameDoc = { id: fixed.id, data: () => fixed.data() };
+  } else {
+    const snap = await getDocs(collection(db, "games"));
+    if (snap.empty) {
+      flash("login-msg", "bad", 'Žádná hra zatím neexistuje. Spusť <a class="back-link" href="seed.html">seed.html</a>.');
+      return;
+    }
+    gameDoc = snap.docs.find((d) => (d.data().title || "") === "Stínadla") || snap.docs[0];
   }
-  // pokud je víc her, vezmi tu s titulem Stínadla, jinak první
-  const gameDoc = snap.docs.find((d) => (d.data().title || "") === "Stínadla") || snap.docs[0];
   state.gameId = gameDoc.id;
   const g = gameDoc.data();
   state.gameTitle = g.title || "Stínadla";
+  // záložní cíl na úrovni hry (kdyby tým neměl vlastní)
   if (g.target && typeof g.target.lat === "number") {
-    state.target = {
-      lat: g.target.lat,
-      lng: g.target.lng,
-      radiusM: g.target.radiusM ?? FALLBACK_TARGET.radiusM,
-    };
+    state.target = { lat: g.target.lat, lng: g.target.lng, radiusM: g.target.radiusM ?? FALLBACK_TARGET.radiusM };
   }
   localStorage.setItem(LS_GAME, state.gameId);
+}
+
+// Aktivní cíl: přednostně VLASTNÍ cíl týmu, jinak cíl hry, jinak fallback.
+function currentTarget() {
+  const t = state.team;
+  if (t && t.target && typeof t.target.lat === "number") {
+    return { lat: t.target.lat, lng: t.target.lng, radiusM: t.target.radiusM ?? state.target.radiusM };
+  }
+  return state.target;
 }
 
 // =====================================================================
@@ -212,7 +224,7 @@ function renderTeam() {
   const t = state.team;
   $("team-name").textContent = t.name || t.id;
   $("game-title").textContent = state.gameTitle;
-  $("radius-label").textContent = Math.round(state.target.radiusM);
+  $("radius-label").textContent = Math.round(currentTarget().radiusM);
 
   if (t.arrived) {
     show("arrived-banner");
@@ -225,14 +237,20 @@ function renderTeam() {
 
 // --- záznam polohy (ruční vložení souřadnic) -------------------------
 async function onCapture() {
+  const t = state.team;
+  if (!t || !t.target || typeof t.target.lat !== "number") {
+    flash("capture-msg", "bad", "Tento tým nemá nastavenou cílovou polohu. Kontaktuj organizátora (nastaví se v <em>seed.html</em>).");
+    return;
+  }
   const raw = $("coords-input").value;
   const coords = parseCoords(raw);
   if (!coords) {
     flash("capture-msg", "bad", "Souřadnice se nepodařilo přečíst. Zkus např. <code>49.195869, 16.602122</code>.");
     return;
   }
-  const dist = distanceM(coords.lat, coords.lng, state.target.lat, state.target.lng);
-  const within = dist <= state.target.radiusM;
+  const tgt = currentTarget();
+  const dist = distanceM(coords.lat, coords.lng, tgt.lat, tgt.lng);
+  const within = dist <= tgt.radiusM;
 
   $("btn-capture").disabled = true;
   $("capture-msg").innerHTML = '<div class="spinner"></div>';

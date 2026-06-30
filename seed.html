@@ -3,46 +3,59 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Stínadla — Seed (založení hry)</title>
+  <title>Stínadla — Setup (založení hry)</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <div class="fog"></div>
   <div class="lantern l"></div>
 
-  <div class="wrap">
+  <div class="wrap wide">
     <header class="hero">
-      <h1 class="title" style="font-size:2rem">SEED</h1>
-      <p class="subtitle">Založení hry a týmů</p>
+      <h1 class="title" style="font-size:2rem">SETUP</h1>
+      <p class="subtitle">Týmy · hesla · polohy</p>
     </header>
 
     <div id="config-warn-slot"></div>
 
-    <section id="lock" class="card">
+    <section id="lock" class="card" style="max-width:420px;margin:18px auto">
       <h2>🔒 Admin přístup</h2>
-      <p class="hint">Tato stránka zakládá hru ve Firestore. Zadej admin heslo.</p>
       <input id="pwd" type="password" placeholder="heslo" />
       <button id="btn-unlock" class="btn">Odemknout</button>
       <div id="lock-msg"></div>
     </section>
 
     <section id="panel" class="card hidden">
-      <h2>Založit hru „Stínadla"</h2>
+      <h2>Nastavení hry</h2>
       <p class="hint">
-        Vytvoří hru s jedním cílovým stanovištěm (perimetr 5 m) a 6 týmů.
-        Každý tým dostane <strong>vlastní náhodné heslo</strong> (neuhodnutelné).
-        Pokud hra už existuje, týmy se doplní; <strong>existující hesla zůstanou</strong>.
+        Přidej týmy a ke každému jeho <strong>vlastní cílovou polohu</strong>.
+        Heslo se vygeneruje automaticky. Každý tým hledá svůj bod.
       </p>
 
-      <label class="field-label">Cíl — zeměpisná šířka</label>
-      <input id="lat" class="code-input" type="text" value="49.45608667" />
-      <label class="field-label" style="margin-top:10px">Cíl — zeměpisná délka</label>
-      <input id="lng" class="code-input" type="text" value="16.18272850" />
-      <label class="field-label" style="margin-top:10px">Perimetr (m)</label>
-      <input id="radius" class="code-input" type="text" value="5" />
-      <p class="muted" style="margin-top:8px">Výchozí bod: 49°27.36520'N, 16°10.96371'E.</p>
+      <div class="row" style="gap:14px;flex-wrap:wrap">
+        <div style="flex:2;min-width:180px">
+          <label class="field-label" for="title">Název hry</label>
+          <input id="title" type="text" value="Stínadla" />
+        </div>
+        <div style="flex:1;min-width:120px">
+          <label class="field-label" for="radius">Perimetr (m)</label>
+          <input id="radius" type="text" value="25" />
+        </div>
+      </div>
 
-      <button id="btn-seed" class="btn">🌱 Založit hru a týmy</button>
+      <h3 style="font-family:var(--font-display);color:var(--paper);margin:20px 0 8px">Týmy</h3>
+      <table class="admin" id="teams-table">
+        <thead><tr><th style="width:34%">Název týmu</th><th>Cílová poloha (souřadnice / odkaz z mapy)</th><th></th></tr></thead>
+        <tbody id="teams-rows"></tbody>
+      </table>
+      <button id="btn-add-row" class="btn ghost" style="width:auto;margin-top:10px">+ Přidat tým</button>
+
+      <label style="display:flex;align-items:center;gap:8px;margin-top:18px;color:var(--ink-dim);font-size:0.9rem">
+        <input type="checkbox" id="wipe" checked />
+        Před vytvořením smazat existující týmy (čistý start)
+      </label>
+
+      <button id="btn-seed" class="btn" style="margin-top:14px">🌱 Vytvořit hru a týmy</button>
       <div id="seed-msg"></div>
     </section>
 
@@ -55,48 +68,73 @@
   <script type="module">
     import {
       db, ensureAuth, configIsFilled,
-      collection, doc, getDoc, getDocs, setDoc, addDoc,
+      collection, doc, getDoc, getDocs, setDoc,
       query, where, limit, serverTimestamp,
     } from "./db.js";
+    import { deleteDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
     const ADMIN_PASSWORD = "RychleSipy";
+    const GAME_ID = "stinadla";
     const $ = (id) => document.getElementById(id);
 
-    const game = { title: "Stínadla" };
-    const TEAMS = [
-      { id: "team-1", name: "Tým 1" },
-      { id: "team-2", name: "Tým 2" },
-      { id: "team-3", name: "Tým 3" },
-      { id: "team-4", name: "Tým 4" },
-      { id: "team-5", name: "Tým 5" },
-      { id: "team-6", name: "Tým 6" },
-    ];
+    // --- parser souřadnic (desetinné / DMS / Google Maps) ------------
+    function parseCoords(raw) {
+      if (!raw) return null;
+      const s = raw.trim();
+      let m = s.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
+      if (m) return { lat: +m[1], lng: +m[2] };
+      m = s.match(/[?&](?:q|query|ll|destination|sll)=(-?\d+\.\d+),\s*(-?\d+\.\d+)/);
+      if (m) return { lat: +m[1], lng: +m[2] };
+      const dmsRe = /(\d+)\s*[°:\s]\s*(\d+(?:\.\d+)?)\s*['′:\s]*\s*(?:(\d+(?:\.\d+)?)\s*["″])?\s*([NSEWnsew])/g;
+      const found = [...s.matchAll(dmsRe)];
+      if (found.length >= 2) {
+        const conv = (p) => { let v = parseFloat(p[1]) + parseFloat(p[2])/60 + (p[3]?parseFloat(p[3])/3600:0); const h=p[4].toUpperCase(); if(h==="S"||h==="W")v=-v; return {v,h}; };
+        const a = conv(found[0]), b = conv(found[1]);
+        const isLat = (h)=>h==="N"||h==="S";
+        return { lat: isLat(a.h)?a.v:b.v, lng: isLat(a.h)?b.v:a.v };
+      }
+      m = s.match(/(-?\d+(?:\.\d+)?)\s*[,;\s]\s*(-?\d+(?:\.\d+)?)/);
+      if (m) { const lat=+m[1], lng=+m[2]; if (Math.abs(lat)<=90&&Math.abs(lng)<=180) return {lat,lng}; }
+      return null;
+    }
 
-    // --- generátor neuhodnutelných hesel (tematické + číslo) ---------
+    // --- generátor hesel --------------------------------------------
     const WORDS = ["JEZEK","VONT","SIROKO","MAZNAK","HLAVOLAM","KOCKA","PRACKA",
       "MLHA","LUCERNA","KANAL","MOST","DLAZBA","STIN","ULICKA","TAJEMNA","VRANA",
       "BRATRSTVO","SIPKA","KLEC","ZAHADA"];
     const usedPwd = new Set();
     function randPassword() {
-      for (let tries = 0; tries < 50; tries++) {
-        const a = WORDS[Math.floor(Math.random() * WORDS.length)];
-        let b = WORDS[Math.floor(Math.random() * WORDS.length)];
-        while (b === a) b = WORDS[Math.floor(Math.random() * WORDS.length)];
-        const n = 10 + Math.floor(Math.random() * 90); // 10–99
-        const p = `${a}-${b}-${n}`;
+      for (let i = 0; i < 60; i++) {
+        const a = WORDS[Math.floor(Math.random()*WORDS.length)];
+        let b = WORDS[Math.floor(Math.random()*WORDS.length)];
+        while (b===a) b = WORDS[Math.floor(Math.random()*WORDS.length)];
+        const p = `${a}-${b}-${10+Math.floor(Math.random()*90)}`;
         if (!usedPwd.has(p)) { usedPwd.add(p); return p; }
       }
-      return "STINADLA-" + Math.floor(Math.random() * 1e6);
+      return "STINADLA-" + Math.floor(Math.random()*1e6);
+    }
+    function slug(s, i) {
+      const x = (s||"").normalize("NFD").replace(/[̀-ͯ]/g,"")
+        .toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"");
+      return x || ("team-" + (i+1));
+    }
+
+    // --- řádky týmů --------------------------------------------------
+    function addRow(name = "", coords = "") {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td><input type="text" class="t-name" placeholder="Tým 1" value="${name}"></td>
+        <td><input type="text" class="t-coords" placeholder="49.195869, 16.602122" value="${coords}"></td>
+        <td><a class="back-link t-del" style="margin:0">✕</a></td>`;
+      tr.querySelector(".t-del").addEventListener("click", () => tr.remove());
+      $("teams-rows").appendChild(tr);
     }
 
     if (!configIsFilled()) {
       $("config-warn-slot").innerHTML = `<div class="config-warn">
         ⚠️ <strong>Firebase není nastaven.</strong> Doplň <code>firebase.js</code>.</div>`;
     }
-    ensureAuth().catch((e) => {
-      $("lock-msg").innerHTML = `<div class="flash bad">Přihlášení k Firebase selhalo. Zapni Anonymous Auth.</div>`;
-      console.error(e);
-    });
+    ensureAuth();
 
     $("btn-unlock").addEventListener("click", unlock);
     $("pwd").addEventListener("keydown", (e) => { if (e.key === "Enter") unlock(); });
@@ -104,11 +142,11 @@
       if ($("pwd").value === ADMIN_PASSWORD) {
         $("lock").classList.add("hidden");
         $("panel").classList.remove("hidden");
-      } else {
-        $("lock-msg").innerHTML = `<div class="flash bad">Špatné heslo.</div>`;
-      }
+        if (!$("teams-rows").children.length) { addRow("Tým 1"); addRow("Tým 2"); addRow("Tým 3"); }
+      } else { $("lock-msg").innerHTML = `<div class="flash bad">Špatné heslo.</div>`; }
     }
 
+    $("btn-add-row").addEventListener("click", () => addRow());
     $("btn-seed").addEventListener("click", seed);
 
     async function seed() {
@@ -116,72 +154,65 @@
       $("seed-msg").innerHTML = '<div class="spinner"></div>';
       try {
         await ensureAuth();
-        const target = {
-          lat: parseFloat($("lat").value),
-          lng: parseFloat($("lng").value),
-          radiusM: parseFloat($("radius").value) || 5,
-        };
-        if (Number.isNaN(target.lat) || Number.isNaN(target.lng)) {
-          throw new Error("Neplatné souřadnice.");
+        const title = $("title").value.trim() || "Stínadla";
+        const radiusM = parseFloat($("radius").value) || 25;
+
+        // posbírej řádky
+        const rows = [...$("teams-rows").children];
+        const teams = [];
+        const errors = [];
+        rows.forEach((tr, i) => {
+          const name = tr.querySelector(".t-name").value.trim();
+          const coordsRaw = tr.querySelector(".t-coords").value.trim();
+          if (!name && !coordsRaw) return; // prázdný řádek
+          const c = parseCoords(coordsRaw);
+          if (!name) { errors.push(`Řádek ${i+1}: chybí název týmu.`); return; }
+          if (!c) { errors.push(`Tým „${name}": neplatné souřadnice „${coordsRaw}".`); return; }
+          teams.push({ id: slug(name, i), name, target: { ...c, radiusM } });
+        });
+        if (!teams.length) throw new Error("Žádný platný tým. Vyplň název a souřadnice.");
+
+        // hra (pevné id "stinadla")
+        const gameRef = doc(db, "games", GAME_ID);
+        const exists = (await getDoc(gameRef)).exists();
+        await setDoc(gameRef, {
+          title, updatedAt: serverTimestamp(),
+          ...(exists ? {} : { createdAt: serverTimestamp() }),
+        }, { merge: true });
+
+        // smazat existující týmy?
+        if ($("wipe").checked) {
+          const old = await getDocs(collection(db, "games", GAME_ID, "teams"));
+          for (const d of old.docs) await deleteDoc(d.ref);
         }
 
-        // existuje už hra „Stínadla"?
-        let gameId, reused = false;
-        const snap = await getDocs(query(collection(db, "games"), where("title", "==", game.title), limit(1)));
-        if (!snap.empty) {
-          gameId = snap.docs[0].id;
-          reused = true;
-          await setDoc(doc(db, "games", gameId), { title: game.title, target, updatedAt: serverTimestamp() }, { merge: true });
-        } else {
-          const ref = await addDoc(collection(db, "games"), {
-            title: game.title, target,
+        // vytvoř týmy
+        const result = [];
+        for (const t of teams) {
+          const pwd = randPassword();
+          await setDoc(doc(db, "games", GAME_ID, "teams", t.id), {
+            name: t.name, password: pwd, target: t.target,
+            arrived: false, arrivedAt: null,
+            bestDistanceM: null, captureCount: 0,
             createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
           });
-          gameId = ref.id;
+          result.push({ ...t, password: pwd });
         }
 
-        // týmy
-        const result = [];
-        for (const t of TEAMS) {
-          const tRef = doc(db, "games", gameId, "teams", t.id);
-          const existing = await getDoc(tRef);
-          if (existing.exists()) {
-            const pwd = existing.data().password || randPassword();
-            await setDoc(tRef, { name: t.name, password: pwd, updatedAt: serverTimestamp() }, { merge: true });
-            result.push({ name: t.name, password: pwd, kept: true });
-          } else {
-            const pwd = randPassword();
-            await setDoc(tRef, {
-              name: t.name, password: pwd,
-              arrived: false, arrivedAt: null,
-              bestDistanceM: null, captureCount: 0,
-              createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
-            });
-            result.push({ name: t.name, password: pwd, kept: false });
-          }
-        }
-
-        const rows = result.map(r =>
+        const trs = result.map(r =>
           `<tr><td><strong>${r.name}</strong></td>
-           <td><code style="background:rgba(0,0,0,.4);padding:2px 8px;border-radius:4px;color:var(--gold-bright)">${r.password}</code></td>
-           <td class="muted">${r.kept ? "zachováno" : "nové"}</td></tr>`).join("");
+            <td><code style="background:rgba(0,0,0,.4);padding:2px 8px;border-radius:4px;color:var(--gold-bright)">${r.password}</code></td>
+            <td class="muted">${r.target.lat.toFixed(6)}, ${r.target.lng.toFixed(6)}</td></tr>`).join("");
 
         $("seed-msg").innerHTML = `
-          <div class="flash ok">
-            ✓ Hotovo! Hra ${reused ? "aktualizována" : "založena"}.<br>
-            <strong>gameId:</strong> <code style="background:rgba(0,0,0,.4);padding:2px 8px;border-radius:4px;color:var(--gold-bright)">${gameId}</code><br>
-            <strong>cíl:</strong> ${target.lat.toFixed(6)}, ${target.lng.toFixed(6)} · perimetr ${target.radiusM} m
-          </div>
-          <h3 style="font-family:var(--font-display);color:var(--paper);margin:18px 0 8px">Hesla týmů — rozdej je týmům</h3>
-          <table class="admin"><thead><tr><th>Tým</th><th>Heslo</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+          <div class="flash ok">✓ Hotovo! Hra „${title}" · ${result.length} týmů · perimetr ${radiusM} m.</div>
+          ${errors.length ? `<div class="flash bad">Přeskočeno:<br>${errors.join("<br>")}</div>` : ""}
+          <h3 style="font-family:var(--font-display);color:var(--paper);margin:18px 0 8px">Hesla — rozdej týmům</h3>
+          <table class="admin"><thead><tr><th>Tým</th><th>Heslo</th><th>Cíl</th></tr></thead><tbody>${trs}</tbody></table>
           <a class="btn ghost" href="admin.html" style="margin-top:14px">Otevřít přehled →</a>`;
       } catch (e) {
         console.error(e);
-        $("seed-msg").innerHTML = `<div class="flash bad">
-          Chyba: ${e.message}<br>
-          <span class="muted">Pozn.: ostrá Firestore Rules zakazují zápis hry/týmů.
-          Pro seedování dočasně nahraj <code>firestore.rules.seed</code>, naseeduj, pak vrať ostrá pravidla. Viz README.</span>
-        </div>`;
+        $("seed-msg").innerHTML = `<div class="flash bad">Chyba: ${e.message}</div>`;
       } finally {
         $("btn-seed").disabled = false;
       }

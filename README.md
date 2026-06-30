@@ -25,9 +25,9 @@ jen jako záloha přihlášeného týmu.
 1. Tým zadá své **tajné heslo** → aplikace najde tým ve Firestore podle
    `password`.
 2. Tým **ručně vloží souřadnice** nalezeného místa (zkopíruje z mapy/GPS)
-   a klikne **„Ověřit a uložit polohu"**. Poloha se nebere z telefonu.
-   Přijímá desetinné (`49.19, 16.60`), DMS (`49°11.752'N 16°36.127'E`)
-   i odkaz z Google Maps.
+   a klikne **„Ověřit a uložit polohu"**. Porovná se s **vlastním cílem
+   týmu**. Poloha se nebere z telefonu. Přijímá desetinné (`49.19, 16.60`),
+   DMS (`49°11.752'N 16°36.127'E`) i odkaz z Google Maps.
 3. Každý záznam (lat, lng, vzdálenost, čas) se uloží do `captures` jako
    **stopa** — záznamů může být libovolně mnoho.
 4. Když je vložená poloha do **perimetru (5 m)** od cíle, nastaví se
@@ -40,12 +40,13 @@ jen jako záloha přihlášeného týmu.
 ```text
 games/{gameId}
   title: "Stínadla"
-  target: { lat, lng, radiusM }      // jedno cílové stanoviště
   createdAt, updatedAt
+  (pevné id "stinadla"; cíl je per-tým, ne na hře)
 
 games/{gameId}/teams/{teamId}
   name: "Tým 1"
   password: "VRANA-MLHA-47"          // unikátní přihlašovací heslo
+  target: { lat, lng, radiusM }      // VLASTNÍ cíl týmu (každý tým jiný)
   arrived: false
   arrivedAt: null
   bestDistanceM: null                // nejbližší dosažená vzdálenost
@@ -85,9 +86,12 @@ games/{gameId}/teams/{teamId}/captures/{captureId}
 > i bez něj a není potřeba řešit Authorized domains. Pokud Anonymous Auth
 > zapneš, appka ho použije; pokud ne, jede dál bez auth.
 
-### 2. Seed
-Otevři `seed.html`, heslo `RychleSipy`, *Založit hru a týmy* → zobrazí se
-**gameId** a **hesla týmů**.
+### 2. Setup (seed.html)
+Otevři `seed.html`, heslo `RychleSipy`. Přidej řádky týmů — u každého
+**název** + jeho **vlastní cílovou polohu** (souřadnice / odkaz z mapy).
+Perimetr je společný. Klikni *Vytvořit hru a týmy* → vygenerují se **hesla**
+(zobrazí se v tabulce, rozdej je týmům). Zaškrtnuté „smazat existující týmy"
+= čistý start. Každý tým pak hledá svůj vlastní bod.
 
 ### 3. GitHub Pages
 Repo veřejné → **Settings → Pages → Branch `main` / root → Save**.

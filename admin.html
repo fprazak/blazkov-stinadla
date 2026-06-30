@@ -132,10 +132,15 @@
             }
           } catch (e) { log = '<span class="muted">(nelze načíst)</span>'; }
 
+          const tgt = t.target && typeof t.target.lat === "number"
+            ? `${(+t.target.lat).toFixed(6)}, ${(+t.target.lng).toFixed(6)}<br><span class="muted">±${t.target.radiusM ?? "?"} m</span>`
+            : `<span class="pill full">chybí</span>`;
+
           rows += `
             <tr class="${t.arrived ? "solved-row" : ""}">
               <td><strong>${esc(t.name || t.id)}</strong></td>
               <td><code>${esc(t.password || "—")}</code></td>
+              <td class="attempt-log">${tgt}</td>
               <td>${status}</td>
               <td>${t.bestDistanceM != null ? t.bestDistanceM + " m" : "—"}</td>
               <td>${t.captureCount || 0}</td>
@@ -147,7 +152,7 @@
         $("table-slot").innerHTML = `
           <table class="admin">
             <thead><tr>
-              <th>Tým</th><th>Heslo</th><th>Stav</th><th>Nejblíž</th>
+              <th>Tým</th><th>Heslo</th><th>Cíl týmu</th><th>Stav</th><th>Nejblíž</th>
               <th>Záznamů</th><th>Stopa (vzdálenosti)</th><th>Čas příchodu</th>
             </tr></thead>
             <tbody>${rows}</tbody>
