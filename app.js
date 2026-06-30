@@ -229,7 +229,7 @@ function renderTeam() {
   if (t.arrived) {
     show("arrived-banner");
     $("arrived-banner").innerHTML =
-      `✓ <strong>Stanoviště splněno!</strong> Tým dorazil na místo${t.bestDistanceM != null ? ` (nejblíž ${meters(t.bestDistanceM)})` : ""}.`;
+      `✓ <strong>Už jsi objevil, co bylo potřeba. Vrať se do tábora!</strong> 🏕️${t.bestDistanceM != null ? ` <span class="muted">(nejblíž ${meters(t.bestDistanceM)})</span>` : ""}`;
   } else {
     hide("arrived-banner");
   }
@@ -294,7 +294,9 @@ async function saveCapture(lat, lng, dist, within) {
 
     const distR = Math.round(dist);
     if (within) {
-      flash("capture-msg", "ok", `✓ Sedí! (${distR} m od cíle) Stanoviště splněno.`);
+      flash("capture-msg", "ok",
+        `<span class="haha" style="color:var(--green)">Už jsi objevil, co bylo potřeba.</span>
+         Vrať se do tábora! 🏕️ <span class="muted">(${distR} m od cíle)</span>`);
       $("coords-input").value = "";
       if (update.arrived) confetti();
     } else {
