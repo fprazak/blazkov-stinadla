@@ -80,6 +80,24 @@
         ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
     }
 
+    // --- navigace: azimut + směr z bodu A do bodu B ------------------
+    function bearingDeg(aLat, aLng, bLat, bLng) {
+      const toRad = d => d*Math.PI/180, toDeg = r => r*180/Math.PI;
+      const f1 = toRad(aLat), f2 = toRad(bLat), dl = toRad(bLng-aLng);
+      const y = Math.sin(dl)*Math.cos(f2);
+      const x = Math.cos(f1)*Math.sin(f2) - Math.sin(f1)*Math.cos(f2)*Math.cos(dl);
+      return (toDeg(Math.atan2(y, x)) + 360) % 360;
+    }
+    function distM(aLat, aLng, bLat, bLng) {
+      const R = 6371000, r = x => x*Math.PI/180;
+      const dLat = r(bLat-aLat), dLng = r(bLng-aLng);
+      const h = Math.sin(dLat/2)**2 + Math.cos(r(aLat))*Math.cos(r(bLat))*Math.sin(dLng/2)**2;
+      return 2*R*Math.asin(Math.sqrt(h));
+    }
+    // 16-bodová růžice (S=sever, J=jih, V=východ, Z=západ)
+    const DIRS = ["S","SSV","SV","VSV","V","VJV","JV","JJV","J","JJZ","JZ","ZJZ","Z","ZSZ","SZ","SSZ"];
+    const compass = deg => DIRS[Math.round(deg/22.5) % 16];
+
     async function load() {
       $("table-slot").innerHTML = '<div class="spinner"></div>';
       try {
@@ -116,13 +134,15 @@
             ? `<span class="pill ok">✓ dorazil</span>`
             : `<span class="pill no">na cestě</span>`;
 
-          // stopa záznamů
+          // stopa záznamů + poslední bod
           let log = "—";
+          let lastCap = null;
           try {
             const aSnap = await getDocs(query(
               collection(db, "games", gameId, "teams", t.id, "captures"),
               orderBy("createdAt", "asc")));
             if (!aSnap.empty) {
+              lastCap = aSnap.docs[aSnap.docs.length - 1].data();
               log = aSnap.docs.map((a, i) => {
                 const x = a.data();
                 const cls = x.within ? "a-ok" : "a-bad";
@@ -132,9 +152,20 @@
             }
           } catch (e) { log = '<span class="muted">(nelze načíst)</span>'; }
 
-          const tgt = t.target && typeof t.target.lat === "number"
+          const hasTarget = t.target && typeof t.target.lat === "number";
+          const tgt = hasTarget
             ? `${(+t.target.lat).toFixed(6)}, ${(+t.target.lng).toFixed(6)}<br><span class="muted">±${t.target.radiusM ?? "?"} m</span>`
             : `<span class="pill full">chybí</span>`;
+
+          // navigace z posledního bodu k cíli (azimut na buzolu + směr)
+          let nav = '<span class="muted">bez bodu</span>';
+          if (t.arrived) {
+            nav = '<span class="pill ok">na místě</span>';
+          } else if (hasTarget && lastCap && typeof lastCap.lat === "number") {
+            const b = bearingDeg(lastCap.lat, lastCap.lng, t.target.lat, t.target.lng);
+            const d = Math.round(distM(lastCap.lat, lastCap.lng, t.target.lat, t.target.lng));
+            nav = `<strong style="color:var(--gold-bright);font-size:1.05rem">${Math.round(b)}°</strong> ${compass(b)}<br><span class="muted">${d} m k cíli</span>`;
+          }
 
           rows += `
             <tr class="${t.arrived ? "solved-row" : ""}">
@@ -142,6 +173,7 @@
               <td><code>${esc(t.password || "—")}</code></td>
               <td class="attempt-log">${tgt}</td>
               <td>${status}</td>
+              <td class="attempt-log">${nav}</td>
               <td>${t.bestDistanceM != null ? t.bestDistanceM + " m" : "—"}</td>
               <td>${t.captureCount || 0}</td>
               <td class="attempt-log">${log}</td>
@@ -152,8 +184,9 @@
         $("table-slot").innerHTML = `
           <table class="admin">
             <thead><tr>
-              <th>Tým</th><th>Heslo</th><th>Cíl týmu</th><th>Stav</th><th>Nejblíž</th>
-              <th>Záznamů</th><th>Stopa (vzdálenosti)</th><th>Čas příchodu</th>
+              <th>Tým</th><th>Heslo</th><th>Cíl týmu</th><th>Stav</th>
+              <th>Buzola → cíl<br><span class="muted" style="font-weight:400">z posl. bodu</span></th>
+              <th>Nejblíž</th><th>Záznamů</th><th>Stopa (vzdálenosti)</th><th>Čas příchodu</th>
             </tr></thead>
             <tbody>${rows}</tbody>
           </table>`;
