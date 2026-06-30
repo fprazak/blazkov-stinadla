@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Stínadla — Seed (založení hry)</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="fog"></div>
+  <div class="lantern l"></div>
+
+  <div class="wrap">
+    <header class="hero">
+      <h1 class="title" style="font-size:2rem">SEED</h1>
+      <p class="subtitle">Založení hry a týmů</p>
+    </header>
+
+    <div id="config-warn-slot"></div>
+
+    <!-- zámek heslem -->
+    <section id="lock" class="card">
+      <h2>🔒 Admin přístup</h2>
+      <p class="hint">Tato stránka zakládá hru ve Firestore. Zadej admin heslo.</p>
+      <input id="pwd" type="password" placeholder="heslo" />
+      <button id="btn-unlock" class="btn">Odemknout</button>
+      <div id="lock-msg"></div>
+    </section>
+
+    <!-- seed panel -->
+    <section id="panel" class="card hidden">
+      <h2>Založit hru „Stínadla"</h2>
+      <p class="hint">
+        Vytvoří se nová hra s <strong>entryCode = JEZEK-V-KLECI</strong>
+        a 6 týmů. Pokud už hra se stejným entryCode existuje, použije se znovu
+        (týmy se založí/aktualizují, pokusy zůstanou).
+      </p>
+      <button id="btn-seed" class="btn">🌱 Založit hru a týmy</button>
+      <div id="seed-msg"></div>
+    </section>
+
+    <p class="center muted" style="margin-top:20px">
+      <a class="back-link" href="index.html">← zpět do hry</a> ·
+      <a class="back-link" href="admin.html">přehled →</a>
+    </p>
+  </div>
+
+  <script type="module">
+    import {
+      db, ensureAuth, configIsFilled,
+      collection, doc, getDoc, getDocs, setDoc, addDoc,
+      query, where, limit, serverTimestamp,
+    } from "./db.js";
+
+    const ADMIN_PASSWORD = "RychleSipy";
+
+    // --- seed data --------------------------------------------------
+    const game = {
+      title: "Stínadla",
+      entryCode: "JEZEK-V-KLECI",
+    };
+    const teams = [
+      { id: "team-1", name: "Tým 1", finalCode: "STINADLA-01" },
+      { id: "team-2", name: "Tým 2", finalCode: "STINADLA-02" },
+      { id: "team-3", name: "Tým 3", finalCode: "STINADLA-03" },
+      { id: "team-4", name: "Tým 4", finalCode: "STINADLA-04" },
+      { id: "team-5", name: "Tým 5", finalCode: "STINADLA-05" },
+      { id: "team-6", name: "Tým 6", finalCode: "STINADLA-06" },
+    ];
+
+    const $ = (id) => document.getElementById(id);
+
+    if (!configIsFilled()) {
+      $("config-warn-slot").innerHTML = `<div class="config-warn">
+        ⚠️ <strong>Firebase není nastaven.</strong> Doplň <code>firebase.js</code>.
+      </div>`;
+    }
+
+    ensureAuth().catch((e) => {
+      $("lock-msg").innerHTML = `<div class="flash bad">Přihlášení k Firebase selhalo. Zapni Anonymous Auth.</div>`;
+      console.error(e);
+    });
+
+    $("btn-unlock").addEventListener("click", unlock);
+    $("pwd").addEventListener("keydown", (e) => { if (e.key === "Enter") unlock(); });
+
+    function unlock() {
+      if ($("pwd").value === ADMIN_PASSWORD) {
+        $("lock").classList.add("hidden");
+        $("panel").classList.remove("hidden");
+      } else {
+        $("lock-msg").innerHTML = `<div class="flash bad">Špatné heslo.</div>`;
+      }
+    }
+
+    $("btn-seed").addEventListener("click", seed);
+
+    async function seed() {
+      $("btn-seed").disabled = true;
+      $("seed-msg").innerHTML = '<div class="spinner"></div>';
+      try {
+        await ensureAuth();
+
+        // existuje už hra s tímto entryCode?
+        let gameId, reused = false;
+        const q = query(collection(db, "games"), where("entryCode", "==", game.entryCode), limit(1));
+        const snap = await getDocs(q);
+        if (!snap.empty) {
+          gameId = snap.docs[0].id;
+          reused = true;
+        } else {
+          // nová hra (auto-id)
+          const ref = await addDoc(collection(db, "games"), {
+            title: game.title,
+            entryCode: game.entryCode,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          });
+          gameId = ref.id;
+        }
+
+        // týmy (setDoc s pevným id, merge aby se nezničily existující pokusy)
+        for (const t of teams) {
+          const tRef = doc(db, "games", gameId, "teams", t.id);
+          const existing = await getDoc(tRef);
+          if (existing.exists()) {
+            // jen sjednoť jméno/finalCode, neresetuj pokusy
+            await setDoc(tRef, {
+              name: t.name,
+              finalCode: t.finalCode,
+              updatedAt: serverTimestamp(),
+            }, { merge: true });
+          } else {
+            await setDoc(tRef, {
+              name: t.name,
+              finalCode: t.finalCode,
+              attemptsUsed: 0,
+              solved: false,
+              solvedAt: null,
+              createdAt: serverTimestamp(),
+              updatedAt: serverTimestamp(),
+            });
+          }
+        }
+
+        $("seed-msg").innerHTML = `
+          <div class="flash ok">
+            ✓ Hotovo! Hra ${reused ? "byla znovu použita" : "byla založena"}.<br><br>
+            <strong>gameId:</strong>
+            <code style="background:rgba(0,0,0,.4);padding:2px 8px;border-radius:4px;color:var(--gold-bright)">${gameId}</code><br>
+            <strong>entryCode:</strong> ${game.entryCode}<br>
+            <strong>týmů:</strong> ${teams.length}
+            <br><br>
+            <a class="btn ghost" href="admin.html">Otevřít přehled →</a>
+          </div>`;
+      } catch (e) {
+        console.error(e);
+        $("seed-msg").innerHTML = `<div class="flash bad">
+          Chyba: ${e.message}<br>
+          <span class="muted">Pozn.: Návrh Firestore Rules zakazuje zápis hry/týmů z klienta.
+          Pro seedování buď dočasně povol zápis, nebo seeduj přes Firebase konzoli /
+          Admin SDK. Viz README.</span>
+        </div>`;
+      } finally {
+        $("btn-seed").disabled = false;
+      }
+    }
+  </script>
+</body>
+</html>

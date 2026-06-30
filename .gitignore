@@ -1,0 +1,15 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# editory
+.vscode/
+.idea/
+
+# firebase lokální
+.firebase/
+*.log
+node_modules/
+
+# lokální preview helper (není potřeba pro nasazení)
+.claude/

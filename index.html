@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Stínadla — Záhada hlavolamu</title>
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🦔</text></svg>" />
+</head>
+<body>
+  <div class="fog"></div>
+  <div class="lantern l"></div>
+  <div class="lantern r"></div>
+
+  <div class="wrap">
+    <header class="hero">
+      <!-- Emblém: ježek v kleci -->
+      <svg class="emblem" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <defs>
+          <radialGradient id="cageGlow" cx="50%" cy="42%" r="60%">
+            <stop offset="0%" stop-color="#1d2433"/>
+            <stop offset="100%" stop-color="#0a0c12"/>
+          </radialGradient>
+        </defs>
+        <circle cx="60" cy="60" r="56" fill="url(#cageGlow)" stroke="#d9a441" stroke-width="2"/>
+        <!-- klec: vodorovné a svislé pruty -->
+        <g stroke="#d9a441" stroke-width="2.2" opacity="0.85" fill="none">
+          <ellipse cx="60" cy="62" rx="34" ry="38"/>
+          <path d="M60 24 V100 M44 26 V99 M76 26 V99 M30 40 H90 M27 62 H93 M30 84 H90"/>
+        </g>
+        <!-- ježek -->
+        <g>
+          <!-- bodliny -->
+          <g stroke="#f4c35a" stroke-width="2" stroke-linecap="round">
+            <path d="M48 70 L40 52 M54 66 L50 46 M61 64 L60 44 M68 65 L72 47 M74 69 L82 54"/>
+          </g>
+          <ellipse cx="61" cy="74" rx="22" ry="14" fill="#caa24a"/>
+          <ellipse cx="61" cy="74" rx="22" ry="14" fill="none" stroke="#7c5a1c" stroke-width="1.2"/>
+          <!-- čumák -->
+          <path d="M40 74 q-7 0 -9 6 q5 4 11 1 z" fill="#e9d49a"/>
+          <circle cx="33" cy="78" r="2" fill="#0a0c12"/>
+          <circle cx="46" cy="70" r="2.2" fill="#0a0c12"/>
+        </g>
+      </svg>
+      <h1 class="title">STÍNADLA</h1>
+      <p class="subtitle">Záhada hlavolamu · Ježek v kleci</p>
+    </header>
+
+    <div id="config-warn-slot"></div>
+
+    <!-- KROK 1: vstupní kód ------------------------------------------- -->
+    <section id="screen-entry" class="card">
+      <h2>Vstup do Stínadel</h2>
+      <p class="hint">Zadej heslo Vontů, abys vstoupil do hry.</p>
+      <label class="field-label" for="entry-code">Vstupní heslo</label>
+      <input id="entry-code" class="code-input" type="text" autocomplete="off"
+             placeholder="JEZEK-V-KLECI" />
+      <button id="btn-entry" class="btn">Vstoupit do Stínadel</button>
+      <div id="entry-msg"></div>
+    </section>
+
+    <!-- KROK 2: výběr týmu -------------------------------------------- -->
+    <section id="screen-teams" class="card hidden">
+      <h2>Vyber svůj tým</h2>
+      <p class="hint">Hra: <strong id="game-title">—</strong></p>
+      <div id="team-grid" class="team-grid"></div>
+      <a class="back-link" id="back-to-entry">← zpět na vstup</a>
+    </section>
+
+    <!-- KROK 3: hra (zadávání kódu) ----------------------------------- -->
+    <section id="screen-play" class="card hidden">
+      <h2 id="play-team-name">Tým</h2>
+      <p class="hint">Máš <strong>3 pokusy</strong> na uhodnutí závěrečného kódu. Vyber moudře.</p>
+
+      <div class="attempts" id="attempts-seals">
+        <div class="seal">1</div>
+        <div class="seal">2</div>
+        <div class="seal">3</div>
+      </div>
+
+      <!-- Geo brána: nejdřív musíš být fyzicky na místě -->
+      <div id="geo-gate">
+        <div class="geo-box">
+          <div class="geo-icon">📍</div>
+          <div>
+            <strong>Závěrečné stanoviště</strong>
+            <div class="muted">Kód jde zadat jen na správném místě ve Stínadlech.</div>
+          </div>
+        </div>
+        <button id="btn-geo" class="btn">📍 Ověřit polohu</button>
+        <div id="geo-msg"></div>
+      </div>
+
+      <div id="play-form" class="hidden">
+        <div id="geo-ok-badge" class="flash ok hidden">✓ Jsi na místě. Můžeš zadat kód.</div>
+        <label class="field-label" for="final-code">Závěrečný kód</label>
+        <input id="final-code" class="code-input" type="text" autocomplete="off"
+               placeholder="STINADLA-00" />
+        <button id="btn-attempt" class="btn">Odeslat pokus</button>
+      </div>
+
+      <div id="play-msg"></div>
+      <a class="back-link" id="back-to-teams">← zpět na výběr týmu</a>
+    </section>
+
+    <p class="center muted" style="margin-top:24px">
+      Organizátor? <a class="back-link" href="admin.html">Přehled týmů →</a>
+    </p>
+  </div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

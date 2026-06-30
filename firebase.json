@@ -1,0 +1,16 @@
+{
+  "comment": "Volitelné Firebase Hosting. Primárně se počítá s GitHub Pages.",
+  "firestore": {
+    "rules": "firestore.rules"
+  },
+  "hosting": {
+    "public": ".",
+    "ignore": [
+      "firebase.json",
+      "firestore.rules*",
+      "**/.*",
+      "**/node_modules/**",
+      "README.md"
+    ]
+  }
+}

@@ -1,0 +1,31 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    match /games/{gameId} {
+      // Hru smí číst kdokoli přihlášený (i anonymně).
+      allow read: if request.auth != null;
+      // Hru NELZE měnit z klienta (zakládá se přes seed / konzoli).
+      allow write: if false;
+
+      match /teams/{teamId} {
+        allow read: if request.auth != null;
+
+        // Tým smí měnit jen tyto klíče a attemptsUsed max. 3.
+        allow update: if request.auth != null
+          && request.resource.data.diff(resource.data).changedKeys()
+            .hasOnly(['attemptsUsed', 'solved', 'solvedAt', 'updatedAt'])
+          && request.resource.data.attemptsUsed <= 3;
+
+        allow create, delete: if false;
+
+        match /attempts/{attemptId} {
+          allow read: if request.auth != null;
+          allow create: if request.auth != null;
+          allow update, delete: if false;
+        }
+      }
+    }
+  }
+}
