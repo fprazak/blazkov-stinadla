@@ -25,11 +25,14 @@ jen jako záloha přihlášeného týmu.
 ## 🎮 Chování
 1. Tým zadá své **tajné heslo** → aplikace najde tým ve Firestore podle
    `password`.
-2. Tým dojde na místo a klikne **„📍 Zaznamenat polohu"**.
-3. Každý záznam (lat, lng, přesnost, vzdálenost, čas) se uloží do
-   `captures` jako **stopa** — záznamů může být libovolně mnoho.
-4. Když je tým do **perimetru (5 m)** od cíle (s ohledem na přesnost GPS),
-   nastaví se `arrived = true`, `arrivedAt`.
+2. Tým **ručně vloží souřadnice** nalezeného místa (zkopíruje z mapy/GPS)
+   a klikne **„Ověřit a uložit polohu"**. Poloha se nebere z telefonu.
+   Přijímá desetinné (`49.19, 16.60`), DMS (`49°11.752'N 16°36.127'E`)
+   i odkaz z Google Maps.
+3. Každý záznam (lat, lng, vzdálenost, čas) se uloží do `captures` jako
+   **stopa** — záznamů může být libovolně mnoho.
+4. Když je vložená poloha do **perimetru (5 m)** od cíle, nastaví se
+   `arrived = true`, `arrivedAt`.
 5. Organizátor v `admin.html` vidí hesla, stav, nejbližší vzdálenost a
    celou stopu záznamů.
 
@@ -51,7 +54,7 @@ games/{gameId}/teams/{teamId}
   createdAt, updatedAt
 
 games/{gameId}/teams/{teamId}/captures/{captureId}
-  lat, lng, accuracy, distanceM, within, createdAt
+  lat, lng, source: "manual", distanceM, within, createdAt
 ```
 
 ## 🔐 Hesla

@@ -19,6 +19,46 @@ const FALLBACK_TARGET = {
   radiusM: 5,                // perimetr 5 m
 };
 
+// Parsování ručně vložených souřadnic.
+// Přijme desetinné "lat, lng", DMS "49°11.752'N 16°36.127'E"
+// i odkaz z Google Maps (@lat,lng nebo q=lat,lng).
+function parseCoords(raw) {
+  if (!raw) return null;
+  const s = raw.trim();
+
+  // 1) Google Maps odkaz: @lat,lng
+  let m = s.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
+  if (m) return { lat: +m[1], lng: +m[2] };
+  // q= / query= / ll= / destination=
+  m = s.match(/[?&](?:q|query|ll|destination|sll)=(-?\d+\.\d+),\s*(-?\d+\.\d+)/);
+  if (m) return { lat: +m[1], lng: +m[2] };
+
+  // 2) DMS: stupně + desetinné minuty (+ volitelné vteřiny) + N/S/E/W
+  const dmsRe = /(\d+)\s*[°:\s]\s*(\d+(?:\.\d+)?)\s*['′:\s]*\s*(?:(\d+(?:\.\d+)?)\s*["″])?\s*([NSEWnsew])/g;
+  const found = [...s.matchAll(dmsRe)];
+  if (found.length >= 2) {
+    const conv = (p) => {
+      let v = parseFloat(p[1]) + parseFloat(p[2]) / 60 + (p[3] ? parseFloat(p[3]) / 3600 : 0);
+      const h = p[4].toUpperCase();
+      if (h === "S" || h === "W") v = -v;
+      return { v, h };
+    };
+    const a = conv(found[0]), b = conv(found[1]);
+    const isLat = (h) => h === "N" || h === "S";
+    const lat = isLat(a.h) ? a.v : b.v;
+    const lng = isLat(a.h) ? b.v : a.v;
+    return { lat, lng };
+  }
+
+  // 3) desetinná dvojice "lat, lng" nebo "lat lng"
+  m = s.match(/(-?\d+(?:\.\d+)?)\s*[,;\s]\s*(-?\d+(?:\.\d+)?)/);
+  if (m) {
+    const lat = +m[1], lng = +m[2];
+    if (Math.abs(lat) <= 90 && Math.abs(lng) <= 180) return { lat, lng };
+  }
+  return null;
+}
+
 // Vzdálenost dvou bodů na Zemi v metrech (haversine).
 function distanceM(aLat, aLng, bLat, bLng) {
   const R = 6371000;
@@ -183,38 +223,23 @@ function renderTeam() {
   }
 }
 
-// --- záznam polohy (GPS) ---------------------------------------------
-function onCapture() {
-  if (!("geolocation" in navigator)) {
-    flash("capture-msg", "bad", "Tento prohlížeč neumí zjistit polohu.");
+// --- záznam polohy (ruční vložení souřadnic) -------------------------
+async function onCapture() {
+  const raw = $("coords-input").value;
+  const coords = parseCoords(raw);
+  if (!coords) {
+    flash("capture-msg", "bad", "Souřadnice se nepodařilo přečíst. Zkus např. <code>49.195869, 16.602122</code>.");
     return;
   }
-  $("btn-capture").disabled = true;
-  $("capture-msg").innerHTML = '<div class="spinner"></div><p class="muted center">Zjišťuji polohu…</p>';
+  const dist = distanceM(coords.lat, coords.lng, state.target.lat, state.target.lng);
+  const within = dist <= state.target.radiusM;
 
-  navigator.geolocation.getCurrentPosition(
-    async (pos) => {
-      const { latitude, longitude, accuracy } = pos.coords;
-      const dist = distanceM(latitude, longitude, state.target.lat, state.target.lng);
-      const within = dist <= state.target.radiusM || (dist - (accuracy || 0)) <= state.target.radiusM;
-      await saveCapture(latitude, longitude, accuracy, dist, within);
-    },
-    (err) => {
-      $("btn-capture").disabled = false;
-      let msg = "Polohu se nepodařilo zjistit.";
-      if (err.code === err.PERMISSION_DENIED)
-        msg = "Přístup k poloze byl zamítnut. Povol polohu v prohlížeči a zkus to znovu.";
-      else if (err.code === err.POSITION_UNAVAILABLE)
-        msg = "Poloha není dostupná. Jdi ven s lepším signálem GPS.";
-      else if (err.code === err.TIMEOUT)
-        msg = "Zjišťování polohy trvalo moc dlouho. Zkus to znovu.";
-      flash("capture-msg", "bad", msg);
-    },
-    { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
-  );
+  $("btn-capture").disabled = true;
+  $("capture-msg").innerHTML = '<div class="spinner"></div>';
+  await saveCapture(coords.lat, coords.lng, dist, within);
 }
 
-async function saveCapture(lat, lng, accuracy, dist, within) {
+async function saveCapture(lat, lng, dist, within) {
   const t = state.team;
   try {
     const teamRef = doc(db, "games", state.gameId, "teams", state.teamId);
@@ -222,7 +247,7 @@ async function saveCapture(lat, lng, accuracy, dist, within) {
     // 1) zapiš bod do stopy (captures)
     await addDoc(collection(teamRef, "captures"), {
       lat, lng,
-      accuracy: Math.round(accuracy || 0),
+      source: "manual",
       distanceM: Math.round(dist),
       within,
       createdAt: serverTimestamp(),
@@ -251,14 +276,14 @@ async function saveCapture(lat, lng, accuracy, dist, within) {
 
     const distR = Math.round(dist);
     if (within) {
-      flash("capture-msg", "ok", `✓ Jsi na místě! (${distR} m od cíle) Stanoviště splněno.`);
+      flash("capture-msg", "ok", `✓ Sedí! (${distR} m od cíle) Stanoviště splněno.`);
+      $("coords-input").value = "";
       if (update.arrived) confetti();
     } else {
       const haha = HAHA[(t.captureCount ?? 0) % HAHA.length];
       flash("capture-msg", "bad",
         `<span class="haha">${haha}</span>
-         Jsi <strong>${distR} m</strong> od cíle (přesnost GPS ±${Math.round(accuracy || 0)} m).
-         Přibliž se a zaznamenej znovu.`);
+         Tato poloha je <strong>${distR} m</strong> od cíle. Zkus jiné souřadnice.`);
     }
   } catch (e) {
     console.error(e);
@@ -285,7 +310,7 @@ async function loadTrail() {
       const mark = x.within ? "✓ na místě" : `${x.distanceM} m daleko`;
       html += `<div class="trail-row">
         <span class="${cls}">${mark}</span>
-        <span class="muted">${time} · ±${x.accuracy} m</span>
+        <span class="muted">${time}</span>
       </div>`;
     });
     $("trail").innerHTML = html;
