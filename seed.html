@@ -18,7 +18,6 @@
 
     <div id="config-warn-slot"></div>
 
-    <!-- zámek heslem -->
     <section id="lock" class="card">
       <h2>🔒 Admin přístup</h2>
       <p class="hint">Tato stránka zakládá hru ve Firestore. Zadej admin heslo.</p>
@@ -27,20 +26,28 @@
       <div id="lock-msg"></div>
     </section>
 
-    <!-- seed panel -->
     <section id="panel" class="card hidden">
       <h2>Založit hru „Stínadla"</h2>
       <p class="hint">
-        Vytvoří se nová hra s <strong>entryCode = JEZEK-V-KLECI</strong>
-        a 6 týmů. Pokud už hra se stejným entryCode existuje, použije se znovu
-        (týmy se založí/aktualizují, pokusy zůstanou).
+        Vytvoří hru s jedním cílovým stanovištěm (perimetr 5 m) a 6 týmů.
+        Každý tým dostane <strong>vlastní náhodné heslo</strong> (neuhodnutelné).
+        Pokud hra už existuje, týmy se doplní; <strong>existující hesla zůstanou</strong>.
       </p>
+
+      <label class="field-label">Cíl — zeměpisná šířka</label>
+      <input id="lat" class="code-input" type="text" value="49.45608667" />
+      <label class="field-label" style="margin-top:10px">Cíl — zeměpisná délka</label>
+      <input id="lng" class="code-input" type="text" value="16.18272850" />
+      <label class="field-label" style="margin-top:10px">Perimetr (m)</label>
+      <input id="radius" class="code-input" type="text" value="5" />
+      <p class="muted" style="margin-top:8px">Výchozí bod: 49°27.36520'N, 16°10.96371'E.</p>
+
       <button id="btn-seed" class="btn">🌱 Založit hru a týmy</button>
       <div id="seed-msg"></div>
     </section>
 
     <p class="center muted" style="margin-top:20px">
-      <a class="back-link" href="index.html">← zpět do hry</a> ·
+      <a class="back-link" href="index.html">← do hry</a> ·
       <a class="back-link" href="admin.html">přehled →</a>
     </p>
   </div>
@@ -53,29 +60,39 @@
     } from "./db.js";
 
     const ADMIN_PASSWORD = "RychleSipy";
+    const $ = (id) => document.getElementById(id);
 
-    // --- seed data --------------------------------------------------
-    const game = {
-      title: "Stínadla",
-      entryCode: "JEZEK-V-KLECI",
-    };
-    const teams = [
-      { id: "team-1", name: "Tým 1", finalCode: "STINADLA-01" },
-      { id: "team-2", name: "Tým 2", finalCode: "STINADLA-02" },
-      { id: "team-3", name: "Tým 3", finalCode: "STINADLA-03" },
-      { id: "team-4", name: "Tým 4", finalCode: "STINADLA-04" },
-      { id: "team-5", name: "Tým 5", finalCode: "STINADLA-05" },
-      { id: "team-6", name: "Tým 6", finalCode: "STINADLA-06" },
+    const game = { title: "Stínadla" };
+    const TEAMS = [
+      { id: "team-1", name: "Tým 1" },
+      { id: "team-2", name: "Tým 2" },
+      { id: "team-3", name: "Tým 3" },
+      { id: "team-4", name: "Tým 4" },
+      { id: "team-5", name: "Tým 5" },
+      { id: "team-6", name: "Tým 6" },
     ];
 
-    const $ = (id) => document.getElementById(id);
+    // --- generátor neuhodnutelných hesel (tematické + číslo) ---------
+    const WORDS = ["JEZEK","VONT","SIROKO","MAZNAK","HLAVOLAM","KOCKA","PRACKA",
+      "MLHA","LUCERNA","KANAL","MOST","DLAZBA","STIN","ULICKA","TAJEMNA","VRANA",
+      "BRATRSTVO","SIPKA","KLEC","ZAHADA"];
+    const usedPwd = new Set();
+    function randPassword() {
+      for (let tries = 0; tries < 50; tries++) {
+        const a = WORDS[Math.floor(Math.random() * WORDS.length)];
+        let b = WORDS[Math.floor(Math.random() * WORDS.length)];
+        while (b === a) b = WORDS[Math.floor(Math.random() * WORDS.length)];
+        const n = 10 + Math.floor(Math.random() * 90); // 10–99
+        const p = `${a}-${b}-${n}`;
+        if (!usedPwd.has(p)) { usedPwd.add(p); return p; }
+      }
+      return "STINADLA-" + Math.floor(Math.random() * 1e6);
+    }
 
     if (!configIsFilled()) {
       $("config-warn-slot").innerHTML = `<div class="config-warn">
-        ⚠️ <strong>Firebase není nastaven.</strong> Doplň <code>firebase.js</code>.
-      </div>`;
+        ⚠️ <strong>Firebase není nastaven.</strong> Doplň <code>firebase.js</code>.</div>`;
     }
-
     ensureAuth().catch((e) => {
       $("lock-msg").innerHTML = `<div class="flash bad">Přihlášení k Firebase selhalo. Zapni Anonymous Auth.</div>`;
       console.error(e);
@@ -83,7 +100,6 @@
 
     $("btn-unlock").addEventListener("click", unlock);
     $("pwd").addEventListener("keydown", (e) => { if (e.key === "Enter") unlock(); });
-
     function unlock() {
       if ($("pwd").value === ADMIN_PASSWORD) {
         $("lock").classList.add("hidden");
@@ -100,66 +116,71 @@
       $("seed-msg").innerHTML = '<div class="spinner"></div>';
       try {
         await ensureAuth();
+        const target = {
+          lat: parseFloat($("lat").value),
+          lng: parseFloat($("lng").value),
+          radiusM: parseFloat($("radius").value) || 5,
+        };
+        if (Number.isNaN(target.lat) || Number.isNaN(target.lng)) {
+          throw new Error("Neplatné souřadnice.");
+        }
 
-        // existuje už hra s tímto entryCode?
+        // existuje už hra „Stínadla"?
         let gameId, reused = false;
-        const q = query(collection(db, "games"), where("entryCode", "==", game.entryCode), limit(1));
-        const snap = await getDocs(q);
+        const snap = await getDocs(query(collection(db, "games"), where("title", "==", game.title), limit(1)));
         if (!snap.empty) {
           gameId = snap.docs[0].id;
           reused = true;
+          await setDoc(doc(db, "games", gameId), { title: game.title, target, updatedAt: serverTimestamp() }, { merge: true });
         } else {
-          // nová hra (auto-id)
           const ref = await addDoc(collection(db, "games"), {
-            title: game.title,
-            entryCode: game.entryCode,
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp(),
+            title: game.title, target,
+            createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
           });
           gameId = ref.id;
         }
 
-        // týmy (setDoc s pevným id, merge aby se nezničily existující pokusy)
-        for (const t of teams) {
+        // týmy
+        const result = [];
+        for (const t of TEAMS) {
           const tRef = doc(db, "games", gameId, "teams", t.id);
           const existing = await getDoc(tRef);
           if (existing.exists()) {
-            // jen sjednoť jméno/finalCode, neresetuj pokusy
-            await setDoc(tRef, {
-              name: t.name,
-              finalCode: t.finalCode,
-              updatedAt: serverTimestamp(),
-            }, { merge: true });
+            const pwd = existing.data().password || randPassword();
+            await setDoc(tRef, { name: t.name, password: pwd, updatedAt: serverTimestamp() }, { merge: true });
+            result.push({ name: t.name, password: pwd, kept: true });
           } else {
+            const pwd = randPassword();
             await setDoc(tRef, {
-              name: t.name,
-              finalCode: t.finalCode,
-              attemptsUsed: 0,
-              solved: false,
-              solvedAt: null,
-              createdAt: serverTimestamp(),
-              updatedAt: serverTimestamp(),
+              name: t.name, password: pwd,
+              arrived: false, arrivedAt: null,
+              bestDistanceM: null, captureCount: 0,
+              createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
             });
+            result.push({ name: t.name, password: pwd, kept: false });
           }
         }
 
+        const rows = result.map(r =>
+          `<tr><td><strong>${r.name}</strong></td>
+           <td><code style="background:rgba(0,0,0,.4);padding:2px 8px;border-radius:4px;color:var(--gold-bright)">${r.password}</code></td>
+           <td class="muted">${r.kept ? "zachováno" : "nové"}</td></tr>`).join("");
+
         $("seed-msg").innerHTML = `
           <div class="flash ok">
-            ✓ Hotovo! Hra ${reused ? "byla znovu použita" : "byla založena"}.<br><br>
-            <strong>gameId:</strong>
-            <code style="background:rgba(0,0,0,.4);padding:2px 8px;border-radius:4px;color:var(--gold-bright)">${gameId}</code><br>
-            <strong>entryCode:</strong> ${game.entryCode}<br>
-            <strong>týmů:</strong> ${teams.length}
-            <br><br>
-            <a class="btn ghost" href="admin.html">Otevřít přehled →</a>
-          </div>`;
+            ✓ Hotovo! Hra ${reused ? "aktualizována" : "založena"}.<br>
+            <strong>gameId:</strong> <code style="background:rgba(0,0,0,.4);padding:2px 8px;border-radius:4px;color:var(--gold-bright)">${gameId}</code><br>
+            <strong>cíl:</strong> ${target.lat.toFixed(6)}, ${target.lng.toFixed(6)} · perimetr ${target.radiusM} m
+          </div>
+          <h3 style="font-family:var(--font-display);color:var(--paper);margin:18px 0 8px">Hesla týmů — rozdej je týmům</h3>
+          <table class="admin"><thead><tr><th>Tým</th><th>Heslo</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+          <a class="btn ghost" href="admin.html" style="margin-top:14px">Otevřít přehled →</a>`;
       } catch (e) {
         console.error(e);
         $("seed-msg").innerHTML = `<div class="flash bad">
           Chyba: ${e.message}<br>
-          <span class="muted">Pozn.: Návrh Firestore Rules zakazuje zápis hry/týmů z klienta.
-          Pro seedování buď dočasně povol zápis, nebo seeduj přes Firebase konzoli /
-          Admin SDK. Viz README.</span>
+          <span class="muted">Pozn.: ostrá Firestore Rules zakazují zápis hry/týmů.
+          Pro seedování dočasně nahraj <code>firestore.rules.seed</code>, naseeduj, pak vrať ostrá pravidla. Viz README.</span>
         </div>`;
       } finally {
         $("btn-seed").disabled = false;

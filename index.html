@@ -23,20 +23,16 @@
           </radialGradient>
         </defs>
         <circle cx="60" cy="60" r="56" fill="url(#cageGlow)" stroke="#d9a441" stroke-width="2"/>
-        <!-- klec: vodorovné a svislé pruty -->
         <g stroke="#d9a441" stroke-width="2.2" opacity="0.85" fill="none">
           <ellipse cx="60" cy="62" rx="34" ry="38"/>
           <path d="M60 24 V100 M44 26 V99 M76 26 V99 M30 40 H90 M27 62 H93 M30 84 H90"/>
         </g>
-        <!-- ježek -->
         <g>
-          <!-- bodliny -->
           <g stroke="#f4c35a" stroke-width="2" stroke-linecap="round">
             <path d="M48 70 L40 52 M54 66 L50 46 M61 64 L60 44 M68 65 L72 47 M74 69 L82 54"/>
           </g>
           <ellipse cx="61" cy="74" rx="22" ry="14" fill="#caa24a"/>
           <ellipse cx="61" cy="74" rx="22" ry="14" fill="none" stroke="#7c5a1c" stroke-width="1.2"/>
-          <!-- čumák -->
           <path d="M40 74 q-7 0 -9 6 q5 4 11 1 z" fill="#e9d49a"/>
           <circle cx="33" cy="78" r="2" fill="#0a0c12"/>
           <circle cx="46" cy="70" r="2.2" fill="#0a0c12"/>
@@ -48,59 +44,42 @@
 
     <div id="config-warn-slot"></div>
 
-    <!-- KROK 1: vstupní kód ------------------------------------------- -->
-    <section id="screen-entry" class="card">
-      <h2>Vstup do Stínadel</h2>
-      <p class="hint">Zadej heslo Vontů, abys vstoupil do hry.</p>
-      <label class="field-label" for="entry-code">Vstupní heslo</label>
-      <input id="entry-code" class="code-input" type="text" autocomplete="off"
-             placeholder="JEZEK-V-KLECI" />
-      <button id="btn-entry" class="btn">Vstoupit do Stínadel</button>
-      <div id="entry-msg"></div>
+    <!-- KROK 1: přihlášení týmu heslem ------------------------------- -->
+    <section id="screen-login" class="card">
+      <h2>Přihlášení týmu</h2>
+      <p class="hint">Zadej tajné heslo svého týmu. Každý tým má vlastní.</p>
+      <label class="field-label" for="team-pwd">Heslo týmu</label>
+      <input id="team-pwd" class="code-input" type="text" autocomplete="off"
+             placeholder="např. VRANA-MLHA-47" />
+      <button id="btn-login" class="btn">Vstoupit do Stínadel</button>
+      <div id="login-msg"></div>
     </section>
 
-    <!-- KROK 2: výběr týmu -------------------------------------------- -->
-    <section id="screen-teams" class="card hidden">
-      <h2>Vyber svůj tým</h2>
-      <p class="hint">Hra: <strong id="game-title">—</strong></p>
-      <div id="team-grid" class="team-grid"></div>
-      <a class="back-link" id="back-to-entry">← zpět na vstup</a>
-    </section>
-
-    <!-- KROK 3: hra (zadávání kódu) ----------------------------------- -->
-    <section id="screen-play" class="card hidden">
-      <h2 id="play-team-name">Tým</h2>
-      <p class="hint">Máš <strong>3 pokusy</strong> na uhodnutí závěrečného kódu. Vyber moudře.</p>
-
-      <div class="attempts" id="attempts-seals">
-        <div class="seal">1</div>
-        <div class="seal">2</div>
-        <div class="seal">3</div>
-      </div>
-
-      <!-- Geo brána: nejdřív musíš být fyzicky na místě -->
-      <div id="geo-gate">
-        <div class="geo-box">
-          <div class="geo-icon">📍</div>
-          <div>
-            <strong>Závěrečné stanoviště</strong>
-            <div class="muted">Kód jde zadat jen na správném místě ve Stínadlech.</div>
-          </div>
+    <!-- KROK 2: tým — záznam polohy ---------------------------------- -->
+    <section id="screen-team" class="card hidden">
+      <div class="row" style="justify-content:space-between;align-items:flex-start">
+        <div>
+          <h2 id="team-name" style="margin:0">Tým</h2>
+          <p class="hint" style="margin:2px 0 0">Hra: <strong id="game-title">Stínadla</strong></p>
         </div>
-        <button id="btn-geo" class="btn">📍 Ověřit polohu</button>
-        <div id="geo-msg"></div>
+        <a class="back-link" id="btn-logout" style="margin:0">odhlásit</a>
       </div>
 
-      <div id="play-form" class="hidden">
-        <div id="geo-ok-badge" class="flash ok hidden">✓ Jsi na místě. Můžeš zadat kód.</div>
-        <label class="field-label" for="final-code">Závěrečný kód</label>
-        <input id="final-code" class="code-input" type="text" autocomplete="off"
-               placeholder="STINADLA-00" />
-        <button id="btn-attempt" class="btn">Odeslat pokus</button>
+      <div id="arrived-banner" class="flash ok hidden" style="margin-top:16px"></div>
+
+      <div class="geo-box" style="margin-top:16px">
+        <div class="geo-icon">📍</div>
+        <div>
+          <strong>Závěrečné stanoviště</strong>
+          <div class="muted">Dojdi na místo a zaznamenej polohu. Musíš být do <strong id="radius-label">5</strong> m od cíle.</div>
+        </div>
       </div>
 
-      <div id="play-msg"></div>
-      <a class="back-link" id="back-to-teams">← zpět na výběr týmu</a>
+      <button id="btn-capture" class="btn">📍 Zaznamenat polohu</button>
+      <div id="capture-msg"></div>
+
+      <h3 style="margin:22px 0 8px;font-family:var(--font-display);color:var(--paper)">Tvoje stopa</h3>
+      <div id="trail"><p class="muted">Zatím žádný záznam.</p></div>
     </section>
 
     <p class="center muted" style="margin-top:24px">

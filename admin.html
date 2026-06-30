@@ -19,7 +19,6 @@
 
     <div id="config-warn-slot"></div>
 
-    <!-- zámek heslem -->
     <section id="lock" class="card" style="max-width:420px;margin:18px auto">
       <h2>🔒 Admin přístup</h2>
       <input id="pwd" type="password" placeholder="heslo" />
@@ -27,16 +26,14 @@
       <div id="lock-msg"></div>
     </section>
 
-    <!-- přehled -->
     <section id="panel" class="hidden">
       <div class="card">
         <div class="row" style="justify-content:space-between;align-items:center">
           <h2 style="margin:0">Týmy ve hře „<span id="game-title">…</span>"</h2>
           <button id="btn-refresh" class="btn ghost" style="width:auto;margin:0">↻ Obnovit</button>
         </div>
-
+        <p class="muted" id="target-line" style="margin:6px 0 0"></p>
         <div class="stat-row" id="stats"></div>
-
         <div id="table-slot"><div class="spinner"></div></div>
       </div>
     </section>
@@ -54,28 +51,23 @@
     } from "./db.js";
 
     const ADMIN_PASSWORD = "RychleSipy";
-    const MAX_ATTEMPTS = 3;
     const $ = (id) => document.getElementById(id);
 
     if (!configIsFilled()) {
       $("config-warn-slot").innerHTML = `<div class="config-warn">
-        ⚠️ <strong>Firebase není nastaven.</strong> Doplň <code>firebase.js</code>.
-      </div>`;
+        ⚠️ <strong>Firebase není nastaven.</strong> Doplň <code>firebase.js</code>.</div>`;
     }
     ensureAuth().catch((e) => console.error(e));
 
     $("btn-unlock").addEventListener("click", unlock);
     $("pwd").addEventListener("keydown", (e) => { if (e.key === "Enter") unlock(); });
     $("btn-refresh").addEventListener("click", load);
-
     function unlock() {
       if ($("pwd").value === ADMIN_PASSWORD) {
         $("lock").classList.add("hidden");
         $("panel").classList.remove("hidden");
         load();
-      } else {
-        $("lock-msg").innerHTML = `<div class="flash bad">Špatné heslo.</div>`;
-      }
+      } else { $("lock-msg").innerHTML = `<div class="flash bad">Špatné heslo.</div>`; }
     }
 
     function fmt(ts) {
@@ -92,77 +84,71 @@
       $("table-slot").innerHTML = '<div class="spinner"></div>';
       try {
         await ensureAuth();
-
-        // vezmeme první hru (nebo dle entryCode; tady bereme všechny a první)
         const gamesSnap = await getDocs(collection(db, "games"));
         if (gamesSnap.empty) {
           $("table-slot").innerHTML = '<p class="muted center">Žádná hra. Spusť <a class="back-link" href="seed.html">seed.html</a>.</p>';
           return;
         }
-        // Pokud je víc her, vezmeme tu s entryCode JEZEK-V-KLECI, jinak první.
-        let gameDoc = gamesSnap.docs.find(d => d.data().entryCode === "JEZEK-V-KLECI") || gamesSnap.docs[0];
+        const gameDoc = gamesSnap.docs.find(d => (d.data().title || "") === "Stínadla") || gamesSnap.docs[0];
         const gameId = gameDoc.id;
-        $("game-title").textContent = gameDoc.data().title || "Stínadla";
+        const g = gameDoc.data();
+        $("game-title").textContent = g.title || "Stínadla";
+        if (g.target) {
+          $("target-line").textContent =
+            `Cíl: ${(+g.target.lat).toFixed(6)}, ${(+g.target.lng).toFixed(6)} · perimetr ${g.target.radiusM ?? 5} m`;
+        }
 
         const teamsSnap = await getDocs(collection(db, "games", gameId, "teams"));
-        const teams = teamsSnap.docs
-          .map(d => ({ id: d.id, ...d.data() }))
+        const teams = teamsSnap.docs.map(d => ({ id: d.id, ...d.data() }))
           .sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id, "cs"));
 
-        // statistiky
         const total = teams.length;
-        const solved = teams.filter(t => t.solved).length;
-        const totalAttempts = teams.reduce((s, t) => s + (t.attemptsUsed || 0), 0);
+        const arrived = teams.filter(t => t.arrived).length;
+        const captures = teams.reduce((s, t) => s + (t.captureCount || 0), 0);
         $("stats").innerHTML = `
           <div class="stat"><div class="num">${total}</div><div class="lbl">týmů</div></div>
-          <div class="stat"><div class="num">${solved}</div><div class="lbl">vyřešilo</div></div>
-          <div class="stat"><div class="num">${totalAttempts}</div><div class="lbl">pokusů celkem</div></div>
-        `;
+          <div class="stat"><div class="num">${arrived}</div><div class="lbl">dorazilo</div></div>
+          <div class="stat"><div class="num">${captures}</div><div class="lbl">záznamů polohy</div></div>`;
 
-        // tabulka + historie pokusů (načteme attempts pro každý tým)
         let rows = "";
         for (const t of teams) {
-          const used = t.attemptsUsed || 0;
-          const locked = t.solved || used >= MAX_ATTEMPTS;
-          const status = t.solved
-            ? `<span class="pill ok">✓ vyřešeno</span>`
-            : used >= MAX_ATTEMPTS
-              ? `<span class="pill full">✕ bez pokusů</span>`
-              : `<span class="pill no">hraje</span>`;
+          const status = t.arrived
+            ? `<span class="pill ok">✓ dorazil</span>`
+            : `<span class="pill no">na cestě</span>`;
 
-          // historie pokusů
+          // stopa záznamů
           let log = "—";
           try {
             const aSnap = await getDocs(query(
-              collection(db, "games", gameId, "teams", t.id, "attempts"),
-              orderBy("createdAt", "asc")
-            ));
+              collection(db, "games", gameId, "teams", t.id, "captures"),
+              orderBy("createdAt", "asc")));
             if (!aSnap.empty) {
               log = aSnap.docs.map((a, i) => {
                 const x = a.data();
-                const cls = x.correct ? "a-ok" : "a-bad";
-                const mark = x.correct ? "✓" : "✕";
-                return `<span class="${cls}">${i + 1}. ${esc(x.code)} ${mark}</span>`;
+                const cls = x.within ? "a-ok" : "a-bad";
+                const time = x.createdAt?.toDate ? x.createdAt.toDate().toLocaleTimeString("cs-CZ", { hour: "2-digit", minute: "2-digit" }) : "";
+                return `<span class="${cls}">${i + 1}. ${x.distanceM} m${x.within ? " ✓" : ""} <span class="muted">${time}</span></span>`;
               }).join("<br>");
             }
           } catch (e) { log = '<span class="muted">(nelze načíst)</span>'; }
 
           rows += `
-            <tr class="${t.solved ? "solved-row" : ""}">
+            <tr class="${t.arrived ? "solved-row" : ""}">
               <td><strong>${esc(t.name || t.id)}</strong></td>
-              <td>${used}/${MAX_ATTEMPTS}</td>
+              <td><code>${esc(t.password || "—")}</code></td>
               <td>${status}</td>
+              <td>${t.bestDistanceM != null ? t.bestDistanceM + " m" : "—"}</td>
+              <td>${t.captureCount || 0}</td>
               <td class="attempt-log">${log}</td>
-              <td>${fmt(t.solvedAt)}</td>
-              <td class="muted">${esc(t.finalCode || "")}</td>
+              <td>${fmt(t.arrivedAt)}</td>
             </tr>`;
         }
 
         $("table-slot").innerHTML = `
           <table class="admin">
             <thead><tr>
-              <th>Tým</th><th>Pokusy</th><th>Stav</th>
-              <th>Historie pokusů</th><th>Čas splnění</th><th>Kód</th>
+              <th>Tým</th><th>Heslo</th><th>Stav</th><th>Nejblíž</th>
+              <th>Záznamů</th><th>Stopa (vzdálenosti)</th><th>Čas příchodu</th>
             </tr></thead>
             <tbody>${rows}</tbody>
           </table>`;

@@ -344,6 +344,22 @@ input.code-input {
   50%      { transform: scale(1.18); opacity: 0.7; }
 }
 
+/* --- stopa záznamů (trail) ------------------------------------------- */
+.trail-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border: 1px solid rgba(217,164,65,0.14);
+  border-radius: 8px;
+  margin-bottom: 6px;
+  background: rgba(8,10,16,0.4);
+  font-size: 0.88rem;
+}
+.trail-row .a-ok { color: var(--green); font-weight: 600; }
+.trail-row .a-bad { color: #e89490; }
+
 /* --- vítězná obrazovka ----------------------------------------------- */
 .win {
   text-align: center;
