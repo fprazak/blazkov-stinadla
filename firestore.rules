@@ -1,32 +1,17 @@
 rules_version = '2';
 
+// =====================================================================
+// OTEVŘENÁ PRAVIDLA — kdokoli může číst i zapisovat VŠECHNA data.
+// Žádné omezení, žádné přihlášení není potřeba.
+//
+// ⚠️ POZOR: kdokoli s odkazem na projekt může data číst, měnit i smazat.
+// Vhodné pro jednorázovou hru. Pro ostrý/dlouhodobý provoz nahraď
+// pravidly, která vyžadují auth a omezují zápis.
+// =====================================================================
 service cloud.firestore {
   match /databases/{database}/documents {
-
-    match /games/{gameId} {
-      // Hru smí číst kdokoli přihlášený (i anonymně).
-      allow read: if request.auth != null;
-      // Hru NELZE měnit z klienta (zakládá se přes seed / konzoli).
-      allow write: if false;
-
-      match /teams/{teamId} {
-        // Čtení týmů je nutné kvůli přihlášení heslem.
-        allow read: if request.auth != null;
-
-        // Tým smí měnit jen tyto klíče (postup na trase + příchod na cíl).
-        allow update: if request.auth != null
-          && request.resource.data.diff(resource.data).changedKeys()
-            .hasOnly(['arrived', 'arrivedAt', 'bestDistanceM', 'captureCount', 'updatedAt']);
-
-        allow create, delete: if false;
-
-        // Stopa záznamů polohy — přihlášený může přidávat, nemazat.
-        match /captures/{captureId} {
-          allow read: if request.auth != null;
-          allow create: if request.auth != null;
-          allow update, delete: if false;
-        }
-      }
+    match /{document=**} {
+      allow read, write: if true;
     }
   }
 }

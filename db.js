@@ -38,15 +38,17 @@ const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
 
-// Provede anonymní přihlášení a vyřeší se, jakmile máme uživatele.
+// Zkusí anonymní přihlášení, ale NEBLOKUJE appku, když selže —
+// s otevřenými pravidly (firestore.rules) není auth potřeba.
 let authPromise = null;
 export function ensureAuth() {
   if (!authPromise) {
-    authPromise = new Promise((resolve, reject) => {
-      onAuthStateChanged(auth, (user) => {
-        if (user) resolve(user);
+    authPromise = new Promise((resolve) => {
+      onAuthStateChanged(auth, (user) => { if (user) resolve(user); });
+      signInAnonymously(auth).catch((e) => {
+        console.warn("Anonymní přihlášení selhalo, pokračuji bez auth (otevřená pravidla):", e?.code || e);
+        resolve(null);
       });
-      signInAnonymously(auth).catch(reject);
     });
   }
   return authPromise;

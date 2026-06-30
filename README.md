@@ -19,8 +19,7 @@ jen jako záloha přihlášeného týmu.
 | `firebase.js` | Firebase konfigurace |
 | `db.js` | sdílená inicializace Firebase + anonymní přihlášení |
 | `styles.css` | atmosférický vzhled (mlha, lucerny, emblém) |
-| `firestore.rules` | **ostrá** bezpečnostní pravidla |
-| `firestore.rules.seed` | dočasná pravidla pro seedování |
+| `firestore.rules` | **otevřená** pravidla (read/write pro kohokoli) |
 
 ## 🎮 Chování
 1. Tým zadá své **tajné heslo** → aplikace najde tým ve Firestore podle
@@ -78,25 +77,25 @@ games/{gameId}/teams/{teamId}/captures/{captureId}
 
 ### 1. Firebase projekt
 1. [console.firebase.google.com](https://console.firebase.google.com) → projekt
-2. **Firestore Database → Create database** (production mode)
-3. **Authentication → Get started → Sign-in method → Anonymous → Enable**
-4. **Authentication → Settings → Authorized domains** → přidej
-   `fprazak.github.io` (jinak Auth na živém webu selže na
-   `auth/unauthorized-domain`)
-5. Config je už doplněný v `firebase.js`.
+2. **Firestore Database → Create database**
+3. **Firestore → Rules** → vlož obsah `firestore.rules` (otevřená) → *Publish*
+4. Config je už doplněný v `firebase.js`.
 
-### 2. Pravidla + seed
-1. **Firestore → Rules** → vlož `firestore.rules.seed` → *Publish*
-2. Otevři `seed.html`, heslo `RychleSipy`, *Založit hru a týmy* →
-   zobrazí se **gameId** a **hesla týmů**
-3. **Firestore → Rules** → vlož zpět `firestore.rules` (ostrá) → *Publish*
+> Anonymní přihlášení je volitelné — s otevřenými pravidly appka funguje
+> i bez něj a není potřeba řešit Authorized domains. Pokud Anonymous Auth
+> zapneš, appka ho použije; pokud ne, jede dál bez auth.
+
+### 2. Seed
+Otevři `seed.html`, heslo `RychleSipy`, *Založit hru a týmy* → zobrazí se
+**gameId** a **hesla týmů**.
 
 ### 3. GitHub Pages
 Repo veřejné → **Settings → Pages → Branch `main` / root → Save**.
 Web poběží na `https://fprazak.github.io/blazkov-stinadla/`.
 
 ## ⚠️ Bezpečnostní poznámka
-Hesla týmů jsou uložená na dokumentu týmu a pro přihlášené čitelná —
-technicky zdatný hráč si je může přečíst z Firestore (cena za přihlášení
-bez serveru). Náhodná hesla brání **uhodnutí**, ne přečtení z konzole.
-Pro reálnou soutěž přesuň ověření hesla do Cloud Function.
+Pravidla v `firestore.rules` jsou **otevřená** — kdokoli s odkazem na
+projekt může číst, měnit i mazat všechna data (včetně hesel týmů).
+Pro jednorázovou hru je to v pohodě. Pro ostrý/dlouhodobý provoz nahraď
+pravidly, která vyžadují auth a omezují zápis, a ověření hesla přesuň do
+Cloud Function.
