@@ -211,11 +211,14 @@
             const last = k === td.captures.length - 1;
             const time = c.createdAt?.toDate
               ? c.createdAt.toDate().toLocaleTimeString("cs-CZ", { hour: "2-digit", minute: "2-digit" }) : "";
+            const isSos = c.source === "sos";
             L.circleMarker([c.lat, c.lng], {
-              radius: last ? 9 : 4.5, color: "#fff", weight: last ? 2.5 : 1,
+              radius: last ? 9 : isSos ? 7 : 4.5,
+              color: isSos ? "#b23a35" : "#fff",
+              weight: last || isSos ? 2.5 : 1,
               fillColor: color, fillOpacity: 0.95,
             }).addTo(mapLayer)
-              .bindTooltip(`${td.name} · záznam ${k + 1}${last ? " (poslední poloha)" : ""}
+              .bindTooltip(`${td.name}${isSos ? " · 🆘 SOS" : ""} · záznam ${k + 1}${last ? " (poslední poloha)" : ""}
                 · ${c.distanceM} m od S${(c.pointIndex ?? 0) + 1} · ${time}`);
             bounds.push([c.lat, c.lng]);
           });
@@ -280,7 +283,8 @@
                 const x = a.data();
                 const cls = x.within ? "a-ok" : "a-bad";
                 const time = x.createdAt?.toDate ? x.createdAt.toDate().toLocaleTimeString("cs-CZ", { hour: "2-digit", minute: "2-digit" }) : "";
-                return `<span class="${cls}">S${(x.pointIndex ?? 0) + 1}: ${x.distanceM} m${x.within ? " ✓" : ""} <span class="muted">${time}</span></span>`;
+                const sos = x.source === "sos" ? " 🆘" : "";
+                return `<span class="${cls}">S${(x.pointIndex ?? 0) + 1}: ${x.distanceM} m${x.within ? " ✓" : ""}${sos} <span class="muted">${time}</span></span>`;
               }).join("<br>");
             }
           } catch (e) { log = '<span class="muted">(nelze načíst)</span>'; }

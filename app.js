@@ -128,9 +128,8 @@ let state = {
   gameTitle: "Stínadla",
   teamId: null,
   team: null,
-  lastCapture: null,          // poslední nahraná poloha (pro SOS nápovědu)
+  lastCapture: null,          // poslední nahraná poloha
   photosByPoint: new Set(),   // na kterých stanovištích už je fotka
-  helpArmed: false,           // dvoufázové potvrzení SOS (+5 min)
 };
 
 // --- DOM pomocné ------------------------------------------------------
@@ -207,6 +206,8 @@ function wireEvents() {
   $("coords-input").addEventListener("keydown", (e) => { if (e.key === "Enter") onCapture(); });
   $("btn-logout").addEventListener("click", logout);
   $("btn-help").addEventListener("click", onHelp);
+  $("btn-sos-send").addEventListener("click", onHelpSubmit);
+  $("sos-coords").addEventListener("keydown", (e) => { if (e.key === "Enter") onHelpSubmit(); });
   $("photo-input").addEventListener("change", onPhoto);
   $("btn-cipher").addEventListener("click", onCipher);
   $("cipher-answer").addEventListener("keydown", (e) => { if (e.key === "Enter") onCipher(); });
@@ -600,7 +601,9 @@ async function loadTrail() {
       const time = t ? t.toLocaleString("cs-CZ", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "—";
       const cls = x.within ? "a-ok" : "a-bad";
       const point = `S${(x.pointIndex ?? 0) + 1}`;
-      const mark = x.within ? `${point}: ✓ objeveno` : `${point}: ${x.distanceM} m daleko`;
+      const mark = x.source === "sos"
+        ? `${point}: 🆘 SOS (${x.distanceM} m od cíle)`
+        : x.within ? `${point}: ✓ objeveno` : `${point}: ${x.distanceM} m daleko`;
       html += `<div class="trail-row">
         <span class="${cls}">${mark}</span>
         <span class="muted">${time}</span>
@@ -616,35 +619,81 @@ async function loadTrail() {
 // =====================================================================
 // 🆘 SOS nápověda — vzdálenost + azimut k dalšímu stanovišti
 // =====================================================================
-async function onHelp() {
+// Klik na „Poradit směr" → otevře formulář pro AKTUÁLNÍ polohu týmu.
+function onHelp() {
   const t = state.team;
   const p = teamProgress(t);
   if (!p.points.length || p.finished || p.locked) { clearFlash("help-msg"); return; }
+  $("sos-form").classList.toggle("hidden");
+  clearFlash("help-msg");
+  if (!$("sos-form").classList.contains("hidden")) $("sos-coords").focus();
+}
 
-  const last = state.lastCapture;
-  if (!last || typeof last.lat !== "number") {
-    flash("help-msg", "info",
-      `Nejdřív nahraj aspoň jednu polohu (klidně vedle) — pak ti řeknu,
-       kterým směrem a jak daleko je stanoviště ${p.idx + 1}.`);
+// Odeslání SOS: uloží polohu týmu (vidí ji admin na mapě), přičte +5 min
+// a ukáže přesný azimut + vzdálenost z TÉTO polohy.
+async function onHelpSubmit() {
+  const t = state.team;
+  const p = teamProgress(t);
+  if (!p.points.length || p.finished || p.locked) { renderTeam(); return; }
+
+  const raw = $("sos-coords").value;
+  const coords = parseCoords(raw);
+  if (!coords) {
+    flash("help-msg", "bad",
+      /goo\.gl|maps\.app/i.test(raw)
+        ? `Zkrácený odkaz souřadnice neobsahuje — podrž prst na místě v mapě a zkopíruj souřadnice.`
+        : `Souřadnice se nepodařilo přečíst. Zkus např. <code>49.195869, 16.602122</code>.`);
     return;
   }
-
-  // dvoufázové potvrzení — nápověda stojí +5 minut
-  if (!state.helpArmed) {
-    state.helpArmed = true;
-    flash("help-msg", "info",
-      `⚠️ Nápověda přičte týmu <strong>+${HELP_PENALTY_MIN} minut</strong> k výslednému času.
-       Opravdu chcete poradit směr? <strong>Klepněte na tlačítko ještě jednou.</strong>`);
-    setTimeout(() => { state.helpArmed = false; }, 10000); // po 10 s vyprší
-    return;
-  }
-  state.helpArmed = false;
 
   const tgt = p.points[p.idx];
-  const trueDeg = bearingDeg(last.lat, last.lng, tgt.lat, tgt.lng);
+  const dist = Math.round(distanceM(coords.lat, coords.lng, tgt.lat, tgt.lng));
+  $("btn-sos-send").disabled = true;
+  $("help-msg").innerHTML = '<div class="spinner"></div>';
+
+  try {
+    const teamRef = doc(db, "games", state.gameId, "teams", state.teamId);
+    // 1) ulož SOS polohu do stopy (admin ji vidí na mapě jako 🆘)
+    await addDoc(collection(teamRef, "captures"), {
+      lat: coords.lat, lng: coords.lng,
+      source: "sos",
+      pointIndex: p.idx,
+      distanceM: dist,
+      within: false, // SOS není pokus o check-in
+      createdAt: serverTimestamp(),
+    });
+    // 2) penalizace +5 min + trigger živého adminu
+    const update = {
+      helpCount: (t.helpCount ?? 0) + 1,
+      captureCount: (t.captureCount ?? 0) + 1,
+      updatedAt: serverTimestamp(),
+    };
+    if (!t.startedAt) update.startedAt = serverTimestamp();
+    await updateDoc(teamRef, update);
+    state.team.helpCount = (t.helpCount ?? 0) + 1;
+    state.team.captureCount = (t.captureCount ?? 0) + 1;
+
+    $("sos-coords").value = "";
+    $("sos-form").classList.add("hidden");
+    await loadTrail();
+    showHelpCompass(coords, tgt, dist, p);
+  } catch (e) {
+    console.error(e);
+    flash("help-msg", "bad", "SOS se nepodařilo odeslat. Zkontroluj připojení.");
+  } finally {
+    $("btn-sos-send").disabled = false;
+  }
+}
+
+function showHelpCompass(from, tgt, dist, p) {
+  const trueDeg = bearingDeg(from.lat, from.lng, tgt.lat, tgt.lng);
   const magDeg = Math.round(toMagnetic(trueDeg)); // pro srovnání se střelkou
-  const dist = Math.round(distanceM(last.lat, last.lng, tgt.lat, tgt.lng));
   const km = dist >= 1000 ? (dist / 1000).toFixed(1) + " km" : dist + " m";
+  const radius = tgt.radiusM ?? DEFAULT_RADIUS_M;
+  const closeNote = dist <= radius
+    ? `<div class="flash ok" style="margin-top:10px">🎯 Podle odeslané polohy jste
+       <strong>přímo u cíle</strong> (${dist} m)! Nahrajte fotku a zadejte souřadnice
+       přes „Ověřit a uložit polohu".</div>` : "";
 
   $("help-msg").innerHTML = `
     <div class="compass-wrap">
@@ -671,18 +720,9 @@ async function onHelp() {
     </ol>
     <p class="muted" style="font-size:0.78rem;margin:8px 0 0">
       Máš-li na buzole stupnici: azimut <strong>${magDeg}°</strong>
-      (už přepočtený pro střelku). Počítáno z tvé poslední nahrané polohy —
-      po přesunu nahraj novou a zeptej se znovu.
-    </p>`;
-
-  // poznač si to pro organizátora (nemusí projít — nevadí)
-  try {
-    await updateDoc(doc(db, "games", state.gameId, "teams", state.teamId), {
-      helpCount: (t.helpCount ?? 0) + 1,
-      updatedAt: serverTimestamp(),
-    });
-    state.team.helpCount = (t.helpCount ?? 0) + 1;
-  } catch (e) { console.warn("helpCount se nezapsal", e); }
+      (už přepočtený pro střelku). Počítáno z právě odeslané polohy —
+      po přesunu pošli novou (další +${HELP_PENALTY_MIN} min).
+    </p>${closeNote}`;
 }
 
 // =====================================================================

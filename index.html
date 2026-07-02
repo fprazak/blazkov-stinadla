@@ -103,11 +103,20 @@
         <div class="row" style="justify-content:space-between;align-items:center;gap:12px">
           <div>
             <strong>🆘 Ztratili jste se?</strong>
-            <div class="muted" style="font-size:0.85rem">Ukážu směr a vzdálenost k dalšímu
-              stanovišti. <strong style="color:var(--blood)">Pozor: každá nápověda přičte
+            <div class="muted" style="font-size:0.85rem">Pošlete svou aktuální polohu
+              a ukážu vám přesný azimut a vzdálenost k dalšímu stanovišti.
+              <strong style="color:var(--blood)">Pozor: každá nápověda přičte
               týmu +5 minut k času!</strong></div>
           </div>
-          <button id="btn-help" class="btn ghost" style="width:auto;margin:0;flex:none">Poradit&nbsp;směr&nbsp;(+5&nbsp;min)</button>
+          <button id="btn-help" class="btn ghost" style="width:auto;margin:0;flex:none">Poradit&nbsp;směr</button>
+        </div>
+        <div id="sos-form" class="hidden" style="margin-top:12px">
+          <label class="field-label" for="sos-coords">Kde právě jste? (vlož souřadnice)</label>
+          <input id="sos-coords" type="text" autocomplete="off" placeholder="49.195869, 16.602122" />
+          <p class="muted" style="margin:6px 0 0;font-size:0.78rem">
+            Zkopíruj z mapy — stejné formáty jako u stanoviště. Polohu uvidí i organizátor.
+          </p>
+          <button id="btn-sos-send" class="btn">🆘 Odeslat polohu a poradit směr (+5 min)</button>
         </div>
         <div id="help-msg"></div>
       </div>
