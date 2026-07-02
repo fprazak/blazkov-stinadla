@@ -101,7 +101,23 @@ function bearingDeg(aLat, aLng, bLat, bLng) {
 }
 // 16-bodová růžice (S = sever, V = východ…)
 const DIRS = ["S","SSV","SV","VSV","V","VJV","JV","JJV","J","JJZ","JZ","ZJZ","Z","ZSZ","SZ","SSZ"];
+const DIRS_FULL = ["na sever","na severo-severovýchod","na severovýchod","na východo-severovýchod",
+  "na východ","na východo-jihovýchod","na jihovýchod","na jiho-jihovýchod",
+  "na jih","na jiho-jihozápad","na jihozápad","na západo-jihozápad",
+  "na západ","na západo-severozápad","na severozápad","na severo-severozápad"];
 const compassDir = (deg) => DIRS[Math.round(deg / 22.5) % 16];
+const compassDirFull = (deg) => DIRS_FULL[Math.round(deg / 22.5) % 16];
+
+// Magnetická deklinace v ČR (~5° východně, 2026). Střelka buzoly ukazuje
+// k magnetickému severu — šipku i stupně proto posouváme, aby seděly
+// při srovnání střelky se severem na displeji.
+const DECLINATION_DEG = 5;
+const toMagnetic = (trueDeg) => ((trueDeg - DECLINATION_DEG) % 360 + 360) % 360;
+// Směr "podle hodin" (sever = 12 hodin) — pro buzoly bez stupnice.
+function clockDir(deg) {
+  const h = Math.round(deg / 30) % 12;
+  return h === 0 ? 12 : h;
+}
 
 // --- stav -------------------------------------------------------------
 let state = {
@@ -492,30 +508,39 @@ async function onHelp() {
   }
 
   const tgt = p.points[p.idx];
-  const deg = Math.round(bearingDeg(last.lat, last.lng, tgt.lat, tgt.lng));
+  const trueDeg = bearingDeg(last.lat, last.lng, tgt.lat, tgt.lng);
+  const magDeg = Math.round(toMagnetic(trueDeg)); // pro srovnání se střelkou
   const dist = Math.round(distanceM(last.lat, last.lng, tgt.lat, tgt.lng));
-  const dir = compassDir(deg);
   const km = dist >= 1000 ? (dist / 1000).toFixed(1) + " km" : dist + " m";
 
   $("help-msg").innerHTML = `
     <div class="compass-wrap">
-      <div class="compass-dial">
-        <span class="n">S</span>
-        <svg class="compass-needle" style="transform:rotate(${deg}deg)"
-             width="52" height="52" viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M12 2 L16 19 L12 15.5 L8 19 Z" fill="#f4c35a" stroke="#d9a441" stroke-width="0.6"/>
+      <div class="compass-dial big">
+        <span class="cd cd-n">S</span><span class="cd cd-e">V</span>
+        <span class="cd cd-s">J</span><span class="cd cd-w">Z</span>
+        <svg class="compass-needle" style="transform:rotate(${magDeg}deg)"
+             width="64" height="64" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 1.5 L16 19 L12 15.5 L8 19 Z" fill="#f4c35a" stroke="#d9a441" stroke-width="0.6"/>
           <circle cx="12" cy="12" r="1.6" fill="#0a0c12" stroke="#d9a441" stroke-width="0.8"/>
         </svg>
       </div>
       <div class="compass-info">
-        <div class="deg">${deg}° <span style="font-size:1.05rem">${dir}</span></div>
+        <div class="deg">${compassDirFull(magDeg)}</div>
         <div>Vzdušnou čarou <strong>${km}</strong> k stanovišti ${p.idx + 1}.</div>
-        <div class="muted" style="font-size:0.82rem;margin-top:4px">
-          Nastav buzolu na <strong>${deg}°</strong>, srovnej střelku na
-          sever (S) a vyraz ve směru šipky. Počítáno z tvé poslední nahrané polohy.
-        </div>
       </div>
-    </div>`;
+    </div>
+    <ol class="help-steps">
+      <li>Polož <strong>buzolu vedle telefonu</strong>.</li>
+      <li>Otáčej se i s telefonem, dokud <strong>střelka buzoly nemíří stejně
+          jako S na ciferníku</strong> (nahoru na displeji).</li>
+      <li>Vyraz <strong>ve směru zlaté šipky</strong>. Je to zhruba směr
+          „na ${clockDir(magDeg)} ${(h => h === 1 ? "hodinu" : h >= 2 && h <= 4 ? "hodiny" : "hodin")(clockDir(magDeg))}" (sever = 12).</li>
+    </ol>
+    <p class="muted" style="font-size:0.78rem;margin:8px 0 0">
+      Máš-li na buzole stupnici: azimut <strong>${magDeg}°</strong>
+      (už přepočtený pro střelku). Počítáno z tvé poslední nahrané polohy —
+      po přesunu nahraj novou a zeptej se znovu.
+    </p>`;
 
   // poznač si to pro organizátora (nemusí projít — nevadí)
   try {
