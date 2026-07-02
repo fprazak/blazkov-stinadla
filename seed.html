@@ -191,7 +191,12 @@
           let bad = null;
           lines.forEach((line, j) => {
             const c = parseCoords(line);
-            if (!c) { bad = `Tým „${name}", stanoviště ${j+1}: neplatné souřadnice „${line}".`; return; }
+            if (!c) {
+              bad = /goo\.gl|maps\.app/i.test(line)
+                ? `Tým „${name}", stanoviště ${j+1}: zkrácený odkaz (goo.gl) souřadnice neobsahuje — v mapě podrž prst na místě a zkopíruj souřadnice (např. 49.199138, 16.591262).`
+                : `Tým „${name}", stanoviště ${j+1}: neplatné souřadnice „${line}".`;
+              return;
+            }
             points.push({ ...c, radiusM });
           });
           if (bad) { errors.push(bad); return; }

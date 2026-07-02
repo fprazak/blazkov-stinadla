@@ -342,7 +342,15 @@ async function onCapture() {
   const raw = $("coords-input").value;
   const coords = parseCoords(raw);
   if (!coords) {
-    flash("capture-msg", "bad", "Souřadnice se nepodařilo přečíst. Zkus např. <code>49.195869, 16.602122</code>.");
+    if (/goo\.gl|maps\.app/i.test(raw)) {
+      flash("capture-msg", "bad",
+        `Zkrácený odkaz z mobilních Map bohužel souřadnice neobsahuje. 🙈<br>
+         <strong>Udělej to takhle:</strong> podrž prst na místě v mapě (spadne špendlík)
+         a nahoře se objeví souřadnice — ty zkopíruj sem
+         (např. <code>49.199138, 16.591262</code>).`);
+    } else {
+      flash("capture-msg", "bad", "Souřadnice se nepodařilo přečíst. Zkus např. <code>49.195869, 16.602122</code>.");
+    }
     return;
   }
 
