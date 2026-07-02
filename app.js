@@ -1,5 +1,9 @@
 // =====================================================================
-// STÍNADLA — přihlášení týmu heslem + záznam polohy (GPS stopa)
+// STÍNADLA — přihlášení týmu heslem + postupná stanoviště
+//
+// Každý tým má POSLOUPNOST bodů (points[]). Plní je popořadě:
+//  - všechna stanoviště kromě posledního = NEOMEZENÉ pokusy
+//  - poslední (finální) stanoviště = max 3 pokusy
 // =====================================================================
 import {
   db, ensureAuth, configIsFilled,
@@ -11,13 +15,8 @@ import {
 const LS_GAME = "stinadla.gameId";
 const LS_TEAM = "stinadla.teamId";
 
-// --- GEO: závěrečné stanoviště (fallback, pokud hra nemá target) ------
-// Cílový bod: 49°27.36520'N, 16°10.96371'E (stupně + desetinné minuty).
-const FALLBACK_TARGET = {
-  lat: 49 + 27.36520 / 60,   // = 49.45608667
-  lng: 16 + 10.96371 / 60,   // = 16.18272850
-  radiusM: 5,                // perimetr 5 m
-};
+const MAX_FINAL_ATTEMPTS = 3;   // pokusy na POSLEDNÍM stanovišti
+const DEFAULT_RADIUS_M = 25;
 
 // Parsování ručně vložených souřadnic.
 // Přijme desetinné "lat, lng", DMS "49°11.752'N 16°36.127'E"
@@ -75,7 +74,6 @@ function distanceM(aLat, aLng, bLat, bLng) {
 let state = {
   gameId: null,
   gameTitle: "Stínadla",
-  target: FALLBACK_TARGET,
   teamId: null,
   team: null,
 };
@@ -86,12 +84,10 @@ const show = (id) => $(id).classList.remove("hidden");
 const hide = (id) => $(id).classList.add("hidden");
 function flash(slotId, type, html) { $(slotId).innerHTML = `<div class="flash ${type}">${html}</div>`; }
 function clearFlash(slotId) { $(slotId).innerHTML = ""; }
-const norm = (s) => (s || "").trim().toUpperCase().replace(/\s+/g, "");
 function escapeHtml(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
-const meters = (n) => (n == null ? "—" : `${Math.round(n)} m`);
 
 // Posměšné "haha" hlášky, když je tým daleko ---------------------------
 const HAHA = [
@@ -103,6 +99,30 @@ const HAHA = [
 ];
 
 // =====================================================================
+// Body a postup týmu
+// =====================================================================
+// Vrátí pole bodů týmu; zpětně kompatibilní se starým jedno-bodovým
+// polem `target`.
+function teamPoints(t) {
+  if (Array.isArray(t?.points) && t.points.length &&
+      typeof t.points[0]?.lat === "number") return t.points;
+  if (t?.target && typeof t.target.lat === "number") return [t.target];
+  return [];
+}
+
+// Kompletní stav postupu týmu.
+function teamProgress(t) {
+  const points = teamPoints(t);
+  const idx = Math.min(t?.currentPointIndex ?? 0, points.length);
+  const finished = t?.finished === true || t?.arrived === true ||
+                   (points.length > 0 && idx >= points.length);
+  const isLast = !finished && points.length > 0 && idx === points.length - 1;
+  const attemptsUsed = t?.finalAttemptsUsed ?? 0;
+  const locked = !finished && isLast && attemptsUsed >= MAX_FINAL_ATTEMPTS;
+  return { points, idx, finished, isLast, attemptsUsed, locked };
+}
+
+// =====================================================================
 // START
 // =====================================================================
 async function init() {
@@ -110,13 +130,7 @@ async function init() {
     $("config-warn-slot").innerHTML = `<div class="config-warn">
       ⚠️ <strong>Firebase není nastaven.</strong> Doplň <code>firebase.js</code>.</div>`;
   }
-  try {
-    await ensureAuth();
-  } catch (e) {
-    console.error(e);
-    flash("login-msg", "bad", "Nepodařilo se přihlásit k Firebase. Zkontroluj, že je v konzoli zapnutý <strong>Anonymous Auth</strong> a že je doména povolená.");
-    return;
-  }
+  await ensureAuth(); // neblokuje (otevřená pravidla fungují i bez auth)
 
   wireEvents();
   await loadGame();
@@ -127,12 +141,12 @@ function wireEvents() {
   $("btn-login").addEventListener("click", onLogin);
   $("team-pwd").addEventListener("keydown", (e) => { if (e.key === "Enter") onLogin(); });
   $("btn-capture").addEventListener("click", onCapture);
+  $("coords-input").addEventListener("keydown", (e) => { if (e.key === "Enter") onCapture(); });
   $("btn-logout").addEventListener("click", logout);
 }
 
 // --- najdi hru (přednostně pevné id "stinadla") -----------------------
 async function loadGame() {
-  // 1) zkus pevné id "stinadla"
   let gameDoc = null;
   const fixed = await getDoc(doc(db, "games", "stinadla"));
   if (fixed.exists()) {
@@ -146,22 +160,8 @@ async function loadGame() {
     gameDoc = snap.docs.find((d) => (d.data().title || "") === "Stínadla") || snap.docs[0];
   }
   state.gameId = gameDoc.id;
-  const g = gameDoc.data();
-  state.gameTitle = g.title || "Stínadla";
-  // záložní cíl na úrovni hry (kdyby tým neměl vlastní)
-  if (g.target && typeof g.target.lat === "number") {
-    state.target = { lat: g.target.lat, lng: g.target.lng, radiusM: g.target.radiusM ?? FALLBACK_TARGET.radiusM };
-  }
+  state.gameTitle = gameDoc.data().title || "Stínadla";
   localStorage.setItem(LS_GAME, state.gameId);
-}
-
-// Aktivní cíl: přednostně VLASTNÍ cíl týmu, jinak cíl hry, jinak fallback.
-function currentTarget() {
-  const t = state.team;
-  if (t && t.target && typeof t.target.lat === "number") {
-    return { lat: t.target.lat, lng: t.target.lng, radiusM: t.target.radiusM ?? state.target.radiusM };
-  }
-  return state.target;
 }
 
 // =====================================================================
@@ -224,64 +224,109 @@ function renderTeam() {
   const t = state.team;
   $("team-name").textContent = t.name || t.id;
   $("game-title").textContent = state.gameTitle;
-  $("radius-label").textContent = Math.round(currentTarget().radiusM);
 
-  if (t.arrived) {
+  const p = teamProgress(t);
+  hide("arrived-banner");
+  hide("locked-banner");
+  show("geo-box");
+  $("capture-form").classList.remove("hidden");
+
+  if (!p.points.length) {
+    hide("geo-box");
+    $("capture-form").classList.add("hidden");
+    flash("capture-msg", "bad", "Tento tým nemá nastavená stanoviště. Kontaktuj organizátora.");
+    return;
+  }
+
+  if (p.finished) {
+    hide("geo-box");
+    $("capture-form").classList.add("hidden");
     show("arrived-banner");
     $("arrived-banner").innerHTML =
-      `✓ <strong>Už jsi objevil, co bylo potřeba. Vrať se do tábora!</strong> 🏕️${t.bestDistanceM != null ? ` <span class="muted">(nejblíž ${meters(t.bestDistanceM)})</span>` : ""}`;
+      `✓ <strong>Už jsi objevil, co bylo potřeba. Vrať se do tábora!</strong> 🏕️
+       <span class="muted">(${p.points.length}/${p.points.length} stanovišť)</span>`;
+    return;
+  }
+
+  if (p.locked) {
+    hide("geo-box");
+    $("capture-form").classList.add("hidden");
+    show("locked-banner");
+    $("locked-banner").innerHTML =
+      `<span class="haha">Konec hry pro tento tým.</span>
+       Všechny <strong>${MAX_FINAL_ATTEMPTS} pokusy</strong> na posledním stanovišti jsou pryč.
+       Stínadla si svá tajemství nechávají pro sebe. Vrať se do tábora.`;
+    return;
+  }
+
+  const tgt = p.points[p.idx];
+  const radius = Math.round(tgt.radiusM ?? DEFAULT_RADIUS_M);
+  $("point-title").textContent = `Stanoviště ${p.idx + 1} z ${p.points.length}`;
+
+  if (p.isLast) {
+    const left = MAX_FINAL_ATTEMPTS - p.attemptsUsed;
+    $("point-hint").innerHTML =
+      `<strong style="color:var(--gold-bright)">Poslední stanoviště!</strong>
+       Vlož souřadnice do ${radius} m od cíle.
+       Zbývá <strong>${left}</strong> ${left === 1 ? "pokus" : "pokusy"} — vyber moudře.`;
   } else {
-    hide("arrived-banner");
+    $("point-hint").innerHTML =
+      `Vlož souřadnice nalezeného místa (do ${radius} m od cíle). Pokusy neomezené.`;
   }
 }
 
 // --- záznam polohy (ruční vložení souřadnic) -------------------------
 async function onCapture() {
   const t = state.team;
-  if (!t || !t.target || typeof t.target.lat !== "number") {
-    flash("capture-msg", "bad", "Tento tým nemá nastavenou cílovou polohu. Kontaktuj organizátora (nastaví se v <em>seed.html</em>).");
-    return;
-  }
+  const p = teamProgress(t);
+  if (!p.points.length || p.finished || p.locked) { renderTeam(); return; }
+
   const raw = $("coords-input").value;
   const coords = parseCoords(raw);
   if (!coords) {
     flash("capture-msg", "bad", "Souřadnice se nepodařilo přečíst. Zkus např. <code>49.195869, 16.602122</code>.");
     return;
   }
-  const tgt = currentTarget();
+
+  const tgt = p.points[p.idx];
+  const radius = tgt.radiusM ?? DEFAULT_RADIUS_M;
   const dist = distanceM(coords.lat, coords.lng, tgt.lat, tgt.lng);
-  const within = dist <= tgt.radiusM;
+  const within = dist <= radius;
 
   $("btn-capture").disabled = true;
   $("capture-msg").innerHTML = '<div class="spinner"></div>';
-  await saveCapture(coords.lat, coords.lng, dist, within);
-}
 
-async function saveCapture(lat, lng, dist, within) {
-  const t = state.team;
   try {
     const teamRef = doc(db, "games", state.gameId, "teams", state.teamId);
 
     // 1) zapiš bod do stopy (captures)
     await addDoc(collection(teamRef, "captures"), {
-      lat, lng,
+      lat: coords.lat, lng: coords.lng,
       source: "manual",
+      pointIndex: p.idx,
       distanceM: Math.round(dist),
       within,
       createdAt: serverTimestamp(),
     });
 
-    // 2) aktualizuj tým (jen povolené klíče dle rules)
-    const prevBest = t.bestDistanceM;
-    const newBest = prevBest == null ? Math.round(dist) : Math.min(prevBest, Math.round(dist));
+    // 2) aktualizuj tým
     const update = {
       captureCount: (t.captureCount ?? 0) + 1,
-      bestDistanceM: newBest,
       updatedAt: serverTimestamp(),
     };
-    if (within && !t.arrived) {
-      update.arrived = true;
-      update.arrivedAt = serverTimestamp();
+    if (within) {
+      const nextIdx = p.idx + 1;
+      update.currentPointIndex = nextIdx;
+      update.bestDistanceM = null; // nové stanoviště, nová "nejblíž"
+      if (nextIdx >= p.points.length) {
+        update.finished = true;
+        update.finishedAt = serverTimestamp();
+      }
+    } else {
+      const prevBest = t.bestDistanceM;
+      update.bestDistanceM = prevBest == null
+        ? Math.round(dist) : Math.min(prevBest, Math.round(dist));
+      if (p.isLast) update.finalAttemptsUsed = p.attemptsUsed + 1;
     }
     await updateDoc(teamRef, update);
 
@@ -294,16 +339,33 @@ async function saveCapture(lat, lng, dist, within) {
 
     const distR = Math.round(dist);
     if (within) {
-      flash("capture-msg", "ok",
-        `<span class="haha" style="color:var(--green)">Už jsi objevil, co bylo potřeba.</span>
-         Vrať se do tábora! 🏕️ <span class="muted">(${distR} m od cíle)</span>`);
       $("coords-input").value = "";
-      if (update.arrived) confetti();
+      if (update.finished) {
+        flash("capture-msg", "ok",
+          `<span class="haha" style="color:var(--green)">Už jsi objevil, co bylo potřeba.</span>
+           Vrať se do tábora! 🏕️ <span class="muted">(${distR} m od cíle)</span>`);
+        confetti();
+      } else {
+        flash("capture-msg", "ok",
+          `✓ <strong>Stanoviště ${p.idx + 1} objeveno!</strong> (${distR} m od cíle)<br>
+           Pokračuj na stanoviště ${p.idx + 2} z ${p.points.length}.`);
+      }
     } else {
       const haha = HAHA[(t.captureCount ?? 0) % HAHA.length];
-      flash("capture-msg", "bad",
-        `<span class="haha">${haha}</span>
-         Tato poloha je <strong>${distR} m</strong> od cíle. Zkus jiné souřadnice.`);
+      if (p.isLast) {
+        const left = MAX_FINAL_ATTEMPTS - (p.attemptsUsed + 1);
+        flash("capture-msg", "bad",
+          left > 0
+            ? `<span class="haha">${haha}</span>
+               Tato poloha je <strong>${distR} m</strong> od cíle.
+               Na poslední stanoviště ${left === 1 ? "zbývá poslední pokus" : `zbývají ${left} pokusy`}!`
+            : `<span class="haha">A to byl poslední pokus.</span>
+               Tato poloha byla <strong>${distR} m</strong> od cíle. Vrať se do tábora.`);
+      } else {
+        flash("capture-msg", "bad",
+          `<span class="haha">${haha}</span>
+           Tato poloha je <strong>${distR} m</strong> od cíle. Zkus jiné souřadnice — pokusy neomezené.`);
+      }
     }
   } catch (e) {
     console.error(e);
@@ -322,12 +384,13 @@ async function loadTrail() {
     ));
     if (snap.empty) { $("trail").innerHTML = '<p class="muted">Zatím žádný záznam.</p>'; return; }
     let html = "";
-    snap.docs.forEach((d, i) => {
+    snap.docs.forEach((d) => {
       const x = d.data();
       const t = x.createdAt?.toDate ? x.createdAt.toDate() : null;
       const time = t ? t.toLocaleString("cs-CZ", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "—";
       const cls = x.within ? "a-ok" : "a-bad";
-      const mark = x.within ? "✓ na místě" : `${x.distanceM} m daleko`;
+      const point = `S${(x.pointIndex ?? 0) + 1}`;
+      const mark = x.within ? `${point}: ✓ objeveno` : `${point}: ${x.distanceM} m daleko`;
       html += `<div class="trail-row">
         <span class="${cls}">${mark}</span>
         <span class="muted">${time}</span>

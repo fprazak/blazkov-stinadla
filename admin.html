@@ -5,6 +5,18 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Stínadla — Přehled organizátora</title>
   <link rel="stylesheet" href="styles.css" />
+  <!-- Leaflet (mapa) -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+          integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <style>
+    #map { height: 460px; border-radius: 14px; margin: 14px 0 6px;
+           border: 1px solid rgba(217,164,65,0.25); z-index: 1; }
+    .map-legend { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 14px; }
+    .map-legend .pill { font-size: 0.78rem; }
+    .leaflet-tooltip { font-size: 12px; }
+  </style>
 </head>
 <body>
   <div class="fog"></div>
@@ -32,15 +44,24 @@
           <h2 style="margin:0">Týmy ve hře „<span id="game-title">…</span>"</h2>
           <button id="btn-refresh" class="btn ghost" style="width:auto;margin:0">↻ Obnovit</button>
         </div>
-        <p class="muted" id="target-line" style="margin:6px 0 0"></p>
+
         <div class="stat-row" id="stats"></div>
+
+        <h3 style="font-family:var(--font-display);color:var(--paper);margin:14px 0 0">🗺 Mapa — stanoviště a polohy týmů</h3>
+        <p class="muted" style="margin:4px 0 0">
+          Číslované body = stanoviště trasy (černý okraj = finální).
+          Tečky = nahrané polohy týmu, velká tečka = poslední známá poloha.
+        </p>
+        <div id="map"></div>
+        <div class="map-legend" id="legend"></div>
+
         <div id="table-slot"><div class="spinner"></div></div>
       </div>
     </section>
 
     <p class="center muted" style="margin-top:20px">
       <a class="back-link" href="index.html">← do hry</a> ·
-      <a class="back-link" href="seed.html">seed →</a>
+      <a class="back-link" href="seed.html">setup →</a>
     </p>
   </div>
 
@@ -51,13 +72,18 @@
     } from "./db.js";
 
     const ADMIN_PASSWORD = "RychleSipy";
+    const MAX_FINAL_ATTEMPTS = 3;
     const $ = (id) => document.getElementById(id);
+
+    // barvy týmů na mapě i v legendě
+    const PALETTE = ["#e6194b","#3cb44b","#4363d8","#f58231","#911eb4",
+                     "#42d4f4","#f032e6","#bfef45","#fabed4","#469990"];
 
     if (!configIsFilled()) {
       $("config-warn-slot").innerHTML = `<div class="config-warn">
         ⚠️ <strong>Firebase není nastaven.</strong> Doplň <code>firebase.js</code>.</div>`;
     }
-    ensureAuth().catch((e) => console.error(e));
+    ensureAuth();
 
     $("btn-unlock").addEventListener("click", unlock);
     $("pwd").addEventListener("keydown", (e) => { if (e.key === "Enter") unlock(); });
@@ -80,6 +106,24 @@
         ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
     }
 
+    // --- body týmu (kompatibilní se starým jedno-bodovým `target`) ---
+    function teamPoints(t) {
+      if (Array.isArray(t?.points) && t.points.length &&
+          typeof t.points[0]?.lat === "number") return t.points;
+      if (t?.target && typeof t.target.lat === "number") return [t.target];
+      return [];
+    }
+    function teamProgress(t) {
+      const points = teamPoints(t);
+      const idx = Math.min(t?.currentPointIndex ?? 0, points.length);
+      const finished = t?.finished === true || t?.arrived === true ||
+                       (points.length > 0 && idx >= points.length);
+      const isLast = !finished && points.length > 0 && idx === points.length - 1;
+      const attemptsUsed = t?.finalAttemptsUsed ?? 0;
+      const locked = !finished && isLast && attemptsUsed >= MAX_FINAL_ATTEMPTS;
+      return { points, idx, finished, isLast, attemptsUsed, locked };
+    }
+
     // --- navigace: azimut + směr z bodu A do bodu B ------------------
     function bearingDeg(aLat, aLng, bLat, bLng) {
       const toRad = d => d*Math.PI/180, toDeg = r => r*180/Math.PI;
@@ -94,102 +138,176 @@
       const h = Math.sin(dLat/2)**2 + Math.cos(r(aLat))*Math.cos(r(bLat))*Math.sin(dLng/2)**2;
       return 2*R*Math.asin(Math.sqrt(h));
     }
-    // 16-bodová růžice (S=sever, J=jih, V=východ, Z=západ)
     const DIRS = ["S","SSV","SV","VSV","V","VJV","JV","JJV","J","JJZ","JZ","ZJZ","Z","ZSZ","SZ","SSZ"];
     const compass = deg => DIRS[Math.round(deg/22.5) % 16];
 
+    // --- mapa ---------------------------------------------------------
+    let map = null, mapLayer = null;
+    function renderMap(teamsData) {
+      if (!window.L) { $("map").style.display = "none"; return; }
+      if (!map) {
+        map = L.map("map");
+        L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+          maxZoom: 19, attribution: "© OpenStreetMap",
+        }).addTo(map);
+        mapLayer = L.layerGroup().addTo(map);
+      }
+      mapLayer.clearLayers();
+      const bounds = [];
+
+      teamsData.forEach((td, i) => {
+        const color = PALETTE[i % PALETTE.length];
+
+        // stanoviště trasy (číslované; finální s černým okrajem)
+        td.points.forEach((pt, j) => {
+          const isFinal = j === td.points.length - 1;
+          const icon = L.divIcon({
+            className: "",
+            html: `<div style="background:${color};color:#fff;width:26px;height:26px;border-radius:50%;
+                   display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;
+                   border:3px solid ${isFinal ? "#111" : "#fff"};box-shadow:0 1px 4px rgba(0,0,0,.5)">${j + 1}</div>`,
+            iconSize: [26, 26], iconAnchor: [13, 13],
+          });
+          L.marker([pt.lat, pt.lng], { icon }).addTo(mapLayer)
+            .bindTooltip(`${td.name} — stanoviště ${j + 1}${isFinal ? " (finální)" : ""}`);
+          L.circle([pt.lat, pt.lng], { radius: pt.radiusM ?? 25, color, weight: 1, fillOpacity: 0.08 })
+            .addTo(mapLayer);
+          bounds.push([pt.lat, pt.lng]);
+        });
+
+        // nahrané polohy týmu (stopa + poslední poloha zvýrazněná)
+        if (td.captures.length) {
+          L.polyline(td.captures.map(c => [c.lat, c.lng]),
+            { color, dashArray: "4 6", weight: 2, opacity: 0.7 }).addTo(mapLayer);
+          td.captures.forEach((c, k) => {
+            const last = k === td.captures.length - 1;
+            const time = c.createdAt?.toDate
+              ? c.createdAt.toDate().toLocaleTimeString("cs-CZ", { hour: "2-digit", minute: "2-digit" }) : "";
+            L.circleMarker([c.lat, c.lng], {
+              radius: last ? 9 : 4.5, color: "#fff", weight: last ? 2.5 : 1,
+              fillColor: color, fillOpacity: 0.95,
+            }).addTo(mapLayer)
+              .bindTooltip(`${td.name} · záznam ${k + 1}${last ? " (poslední poloha)" : ""}
+                · ${c.distanceM} m od S${(c.pointIndex ?? 0) + 1} · ${time}`);
+            bounds.push([c.lat, c.lng]);
+          });
+        }
+      });
+
+      if (bounds.length) map.fitBounds(bounds, { padding: [36, 36] });
+      $("legend").innerHTML = teamsData.map((td, i) => {
+        const c = PALETTE[i % PALETTE.length];
+        return `<span class="pill" style="background:${c}26;color:${c};border:1px solid ${c}66">● ${esc(td.name)}</span>`;
+      }).join("");
+    }
+
+    // --- načtení dat ----------------------------------------------------
     async function load() {
       $("table-slot").innerHTML = '<div class="spinner"></div>';
       try {
         await ensureAuth();
-        const gamesSnap = await getDocs(collection(db, "games"));
-        if (gamesSnap.empty) {
-          $("table-slot").innerHTML = '<p class="muted center">Žádná hra. Spusť <a class="back-link" href="seed.html">seed.html</a>.</p>';
-          return;
+        let gameDoc = await getDoc(doc(db, "games", "stinadla"));
+        let gameId, g;
+        if (gameDoc.exists()) { gameId = gameDoc.id; g = gameDoc.data(); }
+        else {
+          const gamesSnap = await getDocs(collection(db, "games"));
+          if (gamesSnap.empty) {
+            $("table-slot").innerHTML = '<p class="muted center">Žádná hra. Spusť <a class="back-link" href="seed.html">seed.html</a>.</p>';
+            return;
+          }
+          const d = gamesSnap.docs.find(x => (x.data().title || "") === "Stínadla") || gamesSnap.docs[0];
+          gameId = d.id; g = d.data();
         }
-        const gameDoc = gamesSnap.docs.find(d => (d.data().title || "") === "Stínadla") || gamesSnap.docs[0];
-        const gameId = gameDoc.id;
-        const g = gameDoc.data();
         $("game-title").textContent = g.title || "Stínadla";
-        if (g.target) {
-          $("target-line").textContent =
-            `Cíl: ${(+g.target.lat).toFixed(6)}, ${(+g.target.lng).toFixed(6)} · perimetr ${g.target.radiusM ?? 5} m`;
-        }
 
         const teamsSnap = await getDocs(collection(db, "games", gameId, "teams"));
         const teams = teamsSnap.docs.map(d => ({ id: d.id, ...d.data() }))
           .sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id, "cs"));
 
+        // statistiky
         const total = teams.length;
-        const arrived = teams.filter(t => t.arrived).length;
-        const captures = teams.reduce((s, t) => s + (t.captureCount || 0), 0);
+        const finishedCount = teams.filter(t => teamProgress(t).finished).length;
+        const capturesTotal = teams.reduce((s, t) => s + (t.captureCount || 0), 0);
         $("stats").innerHTML = `
           <div class="stat"><div class="num">${total}</div><div class="lbl">týmů</div></div>
-          <div class="stat"><div class="num">${arrived}</div><div class="lbl">dorazilo</div></div>
-          <div class="stat"><div class="num">${captures}</div><div class="lbl">záznamů polohy</div></div>`;
+          <div class="stat"><div class="num">${finishedCount}</div><div class="lbl">v cíli</div></div>
+          <div class="stat"><div class="num">${capturesTotal}</div><div class="lbl">záznamů polohy</div></div>`;
 
+        // řádky + data pro mapu
+        const teamsData = [];
         let rows = "";
         for (const t of teams) {
-          const status = t.arrived
-            ? `<span class="pill ok">✓ dorazil</span>`
-            : `<span class="pill no">na cestě</span>`;
+          const p = teamProgress(t);
 
-          // stopa záznamů + poslední bod
+          // stopa záznamů
           let log = "—";
-          let lastCap = null;
+          let caps = [];
           try {
             const aSnap = await getDocs(query(
               collection(db, "games", gameId, "teams", t.id, "captures"),
               orderBy("createdAt", "asc")));
-            if (!aSnap.empty) {
-              lastCap = aSnap.docs[aSnap.docs.length - 1].data();
+            caps = aSnap.docs.map(a => a.data()).filter(c => typeof c.lat === "number");
+            if (aSnap.docs.length) {
               log = aSnap.docs.map((a, i) => {
                 const x = a.data();
                 const cls = x.within ? "a-ok" : "a-bad";
                 const time = x.createdAt?.toDate ? x.createdAt.toDate().toLocaleTimeString("cs-CZ", { hour: "2-digit", minute: "2-digit" }) : "";
-                return `<span class="${cls}">${i + 1}. ${x.distanceM} m${x.within ? " ✓" : ""} <span class="muted">${time}</span></span>`;
+                return `<span class="${cls}">S${(x.pointIndex ?? 0) + 1}: ${x.distanceM} m${x.within ? " ✓" : ""} <span class="muted">${time}</span></span>`;
               }).join("<br>");
             }
           } catch (e) { log = '<span class="muted">(nelze načíst)</span>'; }
 
-          const hasTarget = t.target && typeof t.target.lat === "number";
-          const tgt = hasTarget
-            ? `${(+t.target.lat).toFixed(6)}, ${(+t.target.lng).toFixed(6)}<br><span class="muted">±${t.target.radiusM ?? "?"} m</span>`
-            : `<span class="pill full">chybí</span>`;
+          teamsData.push({ name: t.name || t.id, points: p.points, captures: caps });
 
-          // navigace z posledního bodu k cíli (azimut na buzolu + směr)
+          // stav
+          const status = p.finished
+            ? `<span class="pill ok">✓ v cíli</span>`
+            : p.locked
+              ? `<span class="pill full">✕ bez pokusů</span>`
+              : `<span class="pill no">na cestě</span>`;
+
+          // postup
+          const progress = p.points.length
+            ? `<strong>${Math.min(p.idx, p.points.length)}/${p.points.length}</strong>` +
+              (p.isLast && !p.finished ? `<br><span class="muted">finále: ${p.attemptsUsed}/${MAX_FINAL_ATTEMPTS} pokusů</span>` : "")
+            : `<span class="pill full">bez trasy</span>`;
+
+          // navigace z posledního bodu k AKTUÁLNÍMU stanovišti
           let nav = '<span class="muted">bez bodu</span>';
-          if (t.arrived) {
-            nav = '<span class="pill ok">na místě</span>';
-          } else if (hasTarget && lastCap && typeof lastCap.lat === "number") {
-            const b = bearingDeg(lastCap.lat, lastCap.lng, t.target.lat, t.target.lng);
-            const d = Math.round(distM(lastCap.lat, lastCap.lng, t.target.lat, t.target.lng));
-            nav = `<strong style="color:var(--gold-bright);font-size:1.05rem">${Math.round(b)}°</strong> ${compass(b)}<br><span class="muted">${d} m k cíli</span>`;
+          if (p.finished) {
+            nav = '<span class="pill ok">v cíli</span>';
+          } else if (p.points.length && p.idx < p.points.length && caps.length) {
+            const lastCap = caps[caps.length - 1];
+            const tgt = p.points[p.idx];
+            const b = bearingDeg(lastCap.lat, lastCap.lng, tgt.lat, tgt.lng);
+            const d = Math.round(distM(lastCap.lat, lastCap.lng, tgt.lat, tgt.lng));
+            nav = `<strong style="color:var(--gold-bright);font-size:1.05rem">${Math.round(b)}°</strong> ${compass(b)}<br><span class="muted">${d} m k S${p.idx + 1}</span>`;
           }
 
           rows += `
-            <tr class="${t.arrived ? "solved-row" : ""}">
+            <tr class="${p.finished ? "solved-row" : ""}">
               <td><strong>${esc(t.name || t.id)}</strong></td>
               <td><code>${esc(t.password || "—")}</code></td>
-              <td class="attempt-log">${tgt}</td>
+              <td>${progress}</td>
               <td>${status}</td>
               <td class="attempt-log">${nav}</td>
-              <td>${t.bestDistanceM != null ? t.bestDistanceM + " m" : "—"}</td>
               <td>${t.captureCount || 0}</td>
               <td class="attempt-log">${log}</td>
-              <td>${fmt(t.arrivedAt)}</td>
+              <td>${fmt(t.finishedAt || t.arrivedAt)}</td>
             </tr>`;
         }
 
         $("table-slot").innerHTML = `
           <table class="admin">
             <thead><tr>
-              <th>Tým</th><th>Heslo</th><th>Cíl týmu</th><th>Stav</th>
-              <th>Buzola → cíl<br><span class="muted" style="font-weight:400">z posl. bodu</span></th>
-              <th>Nejblíž</th><th>Záznamů</th><th>Stopa (vzdálenosti)</th><th>Čas příchodu</th>
+              <th>Tým</th><th>Heslo</th><th>Postup</th><th>Stav</th>
+              <th>Buzola → další cíl<br><span class="muted" style="font-weight:400">z posl. bodu</span></th>
+              <th>Záznamů</th><th>Stopa</th><th>V cíli</th>
             </tr></thead>
             <tbody>${rows}</tbody>
           </table>`;
+
+        renderMap(teamsData);
       } catch (e) {
         console.error(e);
         $("table-slot").innerHTML = `<div class="flash bad">Chyba načítání: ${esc(e.message)}</div>`;

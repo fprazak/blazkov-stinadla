@@ -28,8 +28,10 @@
     <section id="panel" class="card hidden">
       <h2>Nastavení hry</h2>
       <p class="hint">
-        Přidej týmy a ke každému jeho <strong>vlastní cílovou polohu</strong>.
-        Heslo se vygeneruje automaticky. Každý tým hledá svůj bod.
+        Přidej týmy a ke každému jeho <strong>vlastní trasu stanovišť</strong> —
+        jeden bod na řádek, tým je plní popořadě. Na všechna stanoviště kromě
+        posledního má tým <strong>neomezené pokusy</strong>, na
+        <strong>poslední jen 3</strong>. Heslo se vygeneruje automaticky.
       </p>
 
       <div class="row" style="gap:14px;flex-wrap:wrap">
@@ -45,7 +47,7 @@
 
       <h3 style="font-family:var(--font-display);color:var(--paper);margin:20px 0 8px">Týmy</h3>
       <table class="admin" id="teams-table">
-        <thead><tr><th style="width:34%">Název týmu</th><th>Cílová poloha (souřadnice / odkaz z mapy)</th><th></th></tr></thead>
+        <thead><tr><th style="width:28%">Název týmu</th><th>Stanoviště — jeden bod na řádek, poslední = finální</th><th></th></tr></thead>
         <tbody id="teams-rows"></tbody>
       </table>
       <button id="btn-add-row" class="btn ghost" style="width:auto;margin-top:10px">+ Přidat tým</button>
@@ -124,7 +126,8 @@
       const tr = document.createElement("tr");
       tr.innerHTML = `
         <td><input type="text" class="t-name" placeholder="Tým 1" value="${name}"></td>
-        <td><input type="text" class="t-coords" placeholder="49.195869, 16.602122" value="${coords}"></td>
+        <td><textarea class="t-coords" rows="4"
+          placeholder="49.195869, 16.602122&#10;49.197000, 16.605000&#10;49.199000, 16.608000  ← finální">${coords}</textarea></td>
         <td><a class="back-link t-del" style="margin:0">✕</a></td>`;
       tr.querySelector(".t-del").addEventListener("click", () => tr.remove());
       $("teams-rows").appendChild(tr);
@@ -165,12 +168,21 @@
           const name = tr.querySelector(".t-name").value.trim();
           const coordsRaw = tr.querySelector(".t-coords").value.trim();
           if (!name && !coordsRaw) return; // prázdný řádek
-          const c = parseCoords(coordsRaw);
           if (!name) { errors.push(`Řádek ${i+1}: chybí název týmu.`); return; }
-          if (!c) { errors.push(`Tým „${name}": neplatné souřadnice „${coordsRaw}".`); return; }
-          teams.push({ id: slug(name, i), name, target: { ...c, radiusM } });
+          // každý neprázdný řádek textarey = jedno stanoviště
+          const lines = coordsRaw.split("\n").map(l => l.trim()).filter(Boolean);
+          if (!lines.length) { errors.push(`Tým „${name}": chybí stanoviště.`); return; }
+          const points = [];
+          let bad = null;
+          lines.forEach((line, j) => {
+            const c = parseCoords(line);
+            if (!c) { bad = `Tým „${name}", stanoviště ${j+1}: neplatné souřadnice „${line}".`; return; }
+            points.push({ ...c, radiusM });
+          });
+          if (bad) { errors.push(bad); return; }
+          teams.push({ id: slug(name, i), name, points });
         });
-        if (!teams.length) throw new Error("Žádný platný tým. Vyplň název a souřadnice.");
+        if (!teams.length) throw new Error("Žádný platný tým. Vyplň název a stanoviště.");
 
         // hra (pevné id "stinadla")
         const gameRef = doc(db, "games", GAME_ID);
@@ -191,8 +203,9 @@
         for (const t of teams) {
           const pwd = randPassword();
           await setDoc(doc(db, "games", GAME_ID, "teams", t.id), {
-            name: t.name, password: pwd, target: t.target,
-            arrived: false, arrivedAt: null,
+            name: t.name, password: pwd, points: t.points,
+            currentPointIndex: 0, finalAttemptsUsed: 0,
+            finished: false, finishedAt: null,
             bestDistanceM: null, captureCount: 0,
             createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
           });
@@ -202,13 +215,13 @@
         const trs = result.map(r =>
           `<tr><td><strong>${r.name}</strong></td>
             <td><code style="background:rgba(0,0,0,.4);padding:2px 8px;border-radius:4px;color:var(--gold-bright)">${r.password}</code></td>
-            <td class="muted">${r.target.lat.toFixed(6)}, ${r.target.lng.toFixed(6)}</td></tr>`).join("");
+            <td class="muted">${r.points.length} stanovišť<br>${r.points.map((p,j)=>`${j+1}. ${p.lat.toFixed(6)}, ${p.lng.toFixed(6)}`).join("<br>")}</td></tr>`).join("");
 
         $("seed-msg").innerHTML = `
           <div class="flash ok">✓ Hotovo! Hra „${title}" · ${result.length} týmů · perimetr ${radiusM} m.</div>
           ${errors.length ? `<div class="flash bad">Přeskočeno:<br>${errors.join("<br>")}</div>` : ""}
           <h3 style="font-family:var(--font-display);color:var(--paper);margin:18px 0 8px">Hesla — rozdej týmům</h3>
-          <table class="admin"><thead><tr><th>Tým</th><th>Heslo</th><th>Cíl</th></tr></thead><tbody>${trs}</tbody></table>
+          <table class="admin"><thead><tr><th>Tým</th><th>Heslo</th><th>Trasa</th></tr></thead><tbody>${trs}</tbody></table>
           <a class="btn ghost" href="admin.html" style="margin-top:14px">Otevřít přehled →</a>`;
       } catch (e) {
         console.error(e);

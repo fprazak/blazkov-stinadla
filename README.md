@@ -24,16 +24,20 @@ jen jako záloha přihlášeného týmu.
 ## 🎮 Chování
 1. Tým zadá své **tajné heslo** → aplikace najde tým ve Firestore podle
    `password`.
-2. Tým **ručně vloží souřadnice** nalezeného místa (zkopíruje z mapy/GPS)
-   a klikne **„Ověřit a uložit polohu"**. Porovná se s **vlastním cílem
-   týmu**. Poloha se nebere z telefonu. Přijímá desetinné (`49.19, 16.60`),
-   DMS (`49°11.752'N 16°36.127'E`) i odkaz z Google Maps.
-3. Každý záznam (lat, lng, vzdálenost, čas) se uloží do `captures` jako
-   **stopa** — záznamů může být libovolně mnoho.
-4. Když je vložená poloha do **perimetru (5 m)** od cíle, nastaví se
-   `arrived = true`, `arrivedAt`.
-5. Organizátor v `admin.html` vidí hesla, stav, nejbližší vzdálenost a
-   celou stopu záznamů.
+2. Každý tým má **vlastní trasu stanovišť** (`points[]`), plní je
+   **popořadě**. Na všechna stanoviště kromě posledního má **neomezené
+   pokusy**; na **poslední (finální) jen 3 pokusy**.
+3. Tým **ručně vloží souřadnice** nalezeného místa (zkopíruje z mapy/GPS)
+   a klikne **„Ověřit a uložit polohu"**. Porovná se s **aktuálním
+   stanovištěm**. Poloha se nebere z telefonu. Přijímá desetinné
+   (`49.19, 16.60`), DMS (`49°11.752'N 16°36.127'E`) i odkaz z Google Maps.
+4. Každý záznam (lat, lng, stanoviště, vzdálenost, čas) se uloží do
+   `captures` jako **stopa**.
+5. Trefa do perimetru → posun na další stanoviště; po posledním
+   `finished = true`, `finishedAt` a hláška *„Vrať se do tábora"*.
+6. Organizátor v `admin.html` vidí **mapu** (stanoviště všech tras +
+   nahrané polohy týmů), hesla, postup, azimut na buzolu k dalšímu cíli
+   a celou stopu.
 
 ## 🗂 Struktura Firestore
 
@@ -46,16 +50,20 @@ games/{gameId}
 games/{gameId}/teams/{teamId}
   name: "Tým 1"
   password: "VRANA-MLHA-47"          // unikátní přihlašovací heslo
-  target: { lat, lng, radiusM }      // VLASTNÍ cíl týmu (každý tým jiný)
-  arrived: false
-  arrivedAt: null
-  bestDistanceM: null                // nejbližší dosažená vzdálenost
+  points: [{ lat, lng, radiusM }, …] // TRASA týmu, poslední = finální
+  currentPointIndex: 0               // které stanoviště právě plní
+  finalAttemptsUsed: 0               // pokusy na posledním stanovišti (max 3)
+  finished: false
+  finishedAt: null
+  bestDistanceM: null                // nejblíž k aktuálnímu stanovišti
   captureCount: 0
   createdAt, updatedAt
 
 games/{gameId}/teams/{teamId}/captures/{captureId}
-  lat, lng, source: "manual", distanceM, within, createdAt
+  lat, lng, source: "manual", pointIndex, distanceM, within, createdAt
 ```
+(Starý formát s jedním `target` je stále podporovaný — bere se jako trasa
+s jedním, tedy finálním, stanovištěm.)
 
 ## 🔐 Hesla
 - **Admin** (seed + přehled): `RychleSipy` — v `seed.html` a `admin.html`
@@ -88,10 +96,10 @@ games/{gameId}/teams/{teamId}/captures/{captureId}
 
 ### 2. Setup (seed.html)
 Otevři `seed.html`, heslo `RychleSipy`. Přidej řádky týmů — u každého
-**název** + jeho **vlastní cílovou polohu** (souřadnice / odkaz z mapy).
-Perimetr je společný. Klikni *Vytvořit hru a týmy* → vygenerují se **hesla**
-(zobrazí se v tabulce, rozdej je týmům). Zaškrtnuté „smazat existující týmy"
-= čistý start. Každý tým pak hledá svůj vlastní bod.
+**název** + **trasu stanovišť** (jeden bod na řádek, poslední = finální;
+souřadnice / odkaz z mapy). Perimetr je společný. Klikni *Vytvořit hru a
+týmy* → vygenerují se **hesla** (zobrazí se v tabulce, rozdej je týmům).
+Zaškrtnuté „smazat existující týmy" = čistý start.
 
 ### 3. GitHub Pages
 Repo veřejné → **Settings → Pages → Branch `main` / root → Save**.

@@ -66,22 +66,25 @@
       </div>
 
       <div id="arrived-banner" class="flash ok hidden" style="margin-top:16px"></div>
+      <div id="locked-banner" class="flash bad hidden" style="margin-top:16px"></div>
 
-      <div class="geo-box" style="margin-top:16px">
+      <div class="geo-box" id="geo-box" style="margin-top:16px">
         <div class="geo-icon">📍</div>
         <div>
-          <strong>Závěrečné stanoviště</strong>
-          <div class="muted">Vlož souřadnice nalezeného místa. Musíš být do <strong id="radius-label">5</strong> m od cíle.</div>
+          <strong id="point-title">Stanoviště</strong>
+          <div class="muted" id="point-hint"></div>
         </div>
       </div>
 
-      <label class="field-label" for="coords-input">Souřadnice (vlož ručně)</label>
-      <input id="coords-input" type="text" autocomplete="off"
-             placeholder="49.195869, 16.602122" />
-      <p class="muted" style="margin:6px 0 0;font-size:0.8rem">
-        Přijmu desetinné (49.19, 16.60), DMS (49°11.752'N 16°36.127'E) i odkaz z Google Maps.
-      </p>
-      <button id="btn-capture" class="btn">Ověřit a uložit polohu</button>
+      <div id="capture-form">
+        <label class="field-label" for="coords-input">Souřadnice (vlož ručně)</label>
+        <input id="coords-input" type="text" autocomplete="off"
+               placeholder="49.195869, 16.602122" />
+        <p class="muted" style="margin:6px 0 0;font-size:0.8rem">
+          Přijmu desetinné (49.19, 16.60), DMS (49°11.752'N 16°36.127'E) i odkaz z Google Maps.
+        </p>
+        <button id="btn-capture" class="btn">Ověřit a uložit polohu</button>
+      </div>
       <div id="capture-msg"></div>
 
       <h3 style="margin:22px 0 8px;font-family:var(--font-display);color:var(--paper)">Tvoje stopa</h3>
