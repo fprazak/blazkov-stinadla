@@ -7,7 +7,10 @@ záznamy se ukládají do **Firebase Firestore**, takže organizátor vidí stop
 i příchody všech týmů a data přežijí změnu zařízení. `localStorage` slouží
 jen jako záloha přihlášeného týmu.
 
-Čistě statická aplikace → běží na **GitHub Pages**.
+Čistě statická aplikace → běží na **Firebase Hosting**:
+**https://blazkov-stinadla.web.app**
+
+Deploy: `npx firebase-tools deploy --only hosting --project blazkov-stinadla --account filip@reinspiro.com`
 
 ## 📁 Soubory
 
@@ -110,9 +113,12 @@ souřadnice / odkaz z mapy). Perimetr je společný. Klikni *Vytvořit hru a
 týmy* → vygenerují se **hesla** (zobrazí se v tabulce, rozdej je týmům).
 Zaškrtnuté „smazat existující týmy" = čistý start.
 
-### 3. GitHub Pages
-Repo veřejné → **Settings → Pages → Branch `main` / root → Save**.
-Web poběží na `https://fprazak.github.io/blazkov-stinadla/`.
+### 3. Nasazení (Firebase Hosting)
+```bash
+npx firebase-tools deploy --only hosting --project blazkov-stinadla --account filip@reinspiro.com
+```
+Web běží na `https://blazkov-stinadla.web.app`.
+(GitHub Pages je odpublikované — deployment tam opakovaně selhával na straně GitHubu.)
 
 ## ⚠️ Bezpečnostní poznámka
 Pravidla v `firestore.rules` jsou **otevřená** — kdokoli s odkazem na
