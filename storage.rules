@@ -1,0 +1,16 @@
+rules_version = '2';
+
+// =====================================================================
+// OTEVŘENÁ PRAVIDLA pro Firebase Storage (fotky týmů).
+// Publikuj ve Firebase konzoli: Build → Storage → Rules → vlož → Publish.
+//
+// ⚠️ Stejně jako u Firestore: kdokoli může číst i nahrávat.
+// Vhodné pro jednorázovou hru; po akci zamkni nebo smaž.
+// =====================================================================
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      allow read, write: if true;
+    }
+  }
+}

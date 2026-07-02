@@ -9,6 +9,7 @@ import {
   db, ensureAuth, configIsFilled,
   collection, doc, getDoc, getDocs, addDoc, updateDoc,
   query, where, orderBy, limit, serverTimestamp,
+  storage, storageRef, uploadBytes, getDownloadURL,
 } from "./db.js";
 
 // --- localStorage klíče (jen ZÁLOHA, zdroj pravdy je Firestore) -------
@@ -70,12 +71,25 @@ function distanceM(aLat, aLng, bLat, bLng) {
   return 2 * R * Math.asin(Math.sqrt(h));
 }
 
+// Azimut (0–360°, 0 = sever) z bodu A do bodu B.
+function bearingDeg(aLat, aLng, bLat, bLng) {
+  const toRad = (d) => d * Math.PI / 180, toDeg = (r) => r * 180 / Math.PI;
+  const f1 = toRad(aLat), f2 = toRad(bLat), dl = toRad(bLng - aLng);
+  const y = Math.sin(dl) * Math.cos(f2);
+  const x = Math.cos(f1) * Math.sin(f2) - Math.sin(f1) * Math.cos(f2) * Math.cos(dl);
+  return (toDeg(Math.atan2(y, x)) + 360) % 360;
+}
+// 16-bodová růžice (S = sever, V = východ…)
+const DIRS = ["S","SSV","SV","VSV","V","VJV","JV","JJV","J","JJZ","JZ","ZJZ","Z","ZSZ","SZ","SSZ"];
+const compassDir = (deg) => DIRS[Math.round(deg / 22.5) % 16];
+
 // --- stav -------------------------------------------------------------
 let state = {
   gameId: null,
   gameTitle: "Stínadla",
   teamId: null,
   team: null,
+  lastCapture: null, // poslední nahraná poloha (pro SOS nápovědu)
 };
 
 // --- DOM pomocné ------------------------------------------------------
@@ -143,6 +157,8 @@ function wireEvents() {
   $("btn-capture").addEventListener("click", onCapture);
   $("coords-input").addEventListener("keydown", (e) => { if (e.key === "Enter") onCapture(); });
   $("btn-logout").addEventListener("click", logout);
+  $("btn-help").addEventListener("click", onHelp);
+  $("photo-input").addEventListener("change", onPhoto);
 }
 
 // --- najdi hru (přednostně pevné id "stinadla") -----------------------
@@ -217,7 +233,23 @@ async function openTeam() {
   hide("screen-login");
   show("screen-team");
   renderTeam();
-  await loadTrail();
+  await Promise.all([loadTrail(), loadPhotos()]);
+}
+
+// --- vykreslení kroků trasy (①—②—③) ---------------------------------
+function renderSteps(p) {
+  const el = $("steps");
+  if (!p.points.length) { el.innerHTML = ""; return; }
+  let html = "";
+  p.points.forEach((_, j) => {
+    const done = j < p.idx || p.finished;
+    const now = !p.finished && j === p.idx;
+    if (j > 0) html += `<div class="step-line ${j <= p.idx || p.finished ? "done" : ""}"></div>`;
+    html += `<div class="step ${done ? "done" : now ? "now" : ""}"
+              title="Stanoviště ${j + 1}${j === p.points.length - 1 ? " (finální)" : ""}">
+              ${done ? "✓" : j + 1}</div>`;
+  });
+  el.innerHTML = html;
 }
 
 function renderTeam() {
@@ -226,13 +258,17 @@ function renderTeam() {
   $("game-title").textContent = state.gameTitle;
 
   const p = teamProgress(t);
+  renderSteps(p);
   hide("arrived-banner");
   hide("locked-banner");
   show("geo-box");
+  show("help-card");
+  show("photo-card");
   $("capture-form").classList.remove("hidden");
 
   if (!p.points.length) {
     hide("geo-box");
+    hide("help-card");
     $("capture-form").classList.add("hidden");
     flash("capture-msg", "bad", "Tento tým nemá nastavená stanoviště. Kontaktuj organizátora.");
     return;
@@ -240,6 +276,7 @@ function renderTeam() {
 
   if (p.finished) {
     hide("geo-box");
+    hide("help-card");
     $("capture-form").classList.add("hidden");
     show("arrived-banner");
     $("arrived-banner").innerHTML =
@@ -250,6 +287,7 @@ function renderTeam() {
 
   if (p.locked) {
     hide("geo-box");
+    hide("help-card");
     $("capture-form").classList.add("hidden");
     show("locked-banner");
     $("locked-banner").innerHTML =
@@ -336,6 +374,7 @@ async function onCapture() {
 
     renderTeam();
     await loadTrail();
+    clearFlash("help-msg"); // nová poloha → stará nápověda už neplatí
 
     const distR = Math.round(dist);
     if (within) {
@@ -382,7 +421,12 @@ async function loadTrail() {
       collection(db, "games", state.gameId, "teams", state.teamId, "captures"),
       orderBy("createdAt", "desc")
     ));
-    if (snap.empty) { $("trail").innerHTML = '<p class="muted">Zatím žádný záznam.</p>'; return; }
+    if (snap.empty) {
+      state.lastCapture = null;
+      $("trail").innerHTML = '<p class="muted">Zatím žádný záznam. Stínadla čekají…</p>';
+      return;
+    }
+    state.lastCapture = snap.docs[0].data(); // desc → první = nejnovější
     let html = "";
     snap.docs.forEach((d) => {
       const x = d.data();
@@ -400,6 +444,134 @@ async function loadTrail() {
   } catch (e) {
     console.warn(e);
     $("trail").innerHTML = '<p class="muted">Stopu se nepodařilo načíst.</p>';
+  }
+}
+
+// =====================================================================
+// 🆘 SOS nápověda — vzdálenost + azimut k dalšímu stanovišti
+// =====================================================================
+async function onHelp() {
+  const t = state.team;
+  const p = teamProgress(t);
+  if (!p.points.length || p.finished || p.locked) { clearFlash("help-msg"); return; }
+
+  const last = state.lastCapture;
+  if (!last || typeof last.lat !== "number") {
+    flash("help-msg", "info",
+      `Nejdřív nahraj aspoň jednu polohu (klidně vedle) — pak ti řeknu,
+       kterým směrem a jak daleko je stanoviště ${p.idx + 1}.`);
+    return;
+  }
+
+  const tgt = p.points[p.idx];
+  const deg = Math.round(bearingDeg(last.lat, last.lng, tgt.lat, tgt.lng));
+  const dist = Math.round(distanceM(last.lat, last.lng, tgt.lat, tgt.lng));
+  const dir = compassDir(deg);
+  const km = dist >= 1000 ? (dist / 1000).toFixed(1) + " km" : dist + " m";
+
+  $("help-msg").innerHTML = `
+    <div class="compass-wrap">
+      <div class="compass-dial">
+        <span class="n">S</span>
+        <svg class="compass-needle" style="transform:rotate(${deg}deg)"
+             width="52" height="52" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 2 L16 19 L12 15.5 L8 19 Z" fill="#f4c35a" stroke="#d9a441" stroke-width="0.6"/>
+          <circle cx="12" cy="12" r="1.6" fill="#0a0c12" stroke="#d9a441" stroke-width="0.8"/>
+        </svg>
+      </div>
+      <div class="compass-info">
+        <div class="deg">${deg}° <span style="font-size:1.05rem">${dir}</span></div>
+        <div>Vzdušnou čarou <strong>${km}</strong> k stanovišti ${p.idx + 1}.</div>
+        <div class="muted" style="font-size:0.82rem;margin-top:4px">
+          Nastav buzolu na <strong>${deg}°</strong>, srovnej střelku na
+          sever (S) a vyraz ve směru šipky. Počítáno z tvé poslední nahrané polohy.
+        </div>
+      </div>
+    </div>`;
+
+  // poznač si to pro organizátora (nemusí projít — nevadí)
+  try {
+    await updateDoc(doc(db, "games", state.gameId, "teams", state.teamId), {
+      helpCount: (t.helpCount ?? 0) + 1,
+      updatedAt: serverTimestamp(),
+    });
+    state.team.helpCount = (t.helpCount ?? 0) + 1;
+  } catch (e) { console.warn("helpCount se nezapsal", e); }
+}
+
+// =====================================================================
+// 📸 Fotka z místa (Firebase Storage)
+// =====================================================================
+// Zmenší fotku (max 1600 px, JPEG) — šetří mobilní data i úložiště.
+async function compressImage(file, maxDim = 1600, quality = 0.82) {
+  try {
+    const img = await createImageBitmap(file);
+    const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(img.width * scale));
+    canvas.height = Math.max(1, Math.round(img.height * scale));
+    canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise((res) => canvas.toBlob(res, "image/jpeg", quality));
+    return blob || file;
+  } catch (e) {
+    console.warn("komprese selhala, nahrávám originál", e);
+    return file;
+  }
+}
+
+async function onPhoto(e) {
+  const file = e.target.files?.[0];
+  e.target.value = ""; // ať jde vybrat stejný soubor znovu
+  if (!file) return;
+  if (!file.type.startsWith("image/")) {
+    flash("photo-msg", "bad", "Tohle není obrázek. Zkus fotku. 📷");
+    return;
+  }
+  const t = state.team;
+  const p = teamProgress(t);
+
+  $("photo-msg").innerHTML = '<div class="spinner"></div><p class="muted center">Nahrávám fotku do Stínadel…</p>';
+  try {
+    const blob = await compressImage(file);
+    const name = `photos/${state.gameId}/${state.teamId}/${Date.now()}.jpg`;
+    const ref = storageRef(storage, name);
+    await uploadBytes(ref, blob, { contentType: "image/jpeg" });
+    const url = await getDownloadURL(ref);
+
+    // metadata do Firestore
+    await addDoc(collection(db, "games", state.gameId, "teams", state.teamId, "photos"), {
+      url,
+      path: name,
+      pointIndex: Math.min(p.idx, Math.max(p.points.length - 1, 0)),
+      createdAt: serverTimestamp(),
+    });
+
+    flash("photo-msg", "ok", "✓ Fotka uložena. Kronikář Bratrstva ji už zkoumá. 🐾");
+    await loadPhotos();
+  } catch (err) {
+    console.error(err);
+    flash("photo-msg", "bad",
+      `Fotku se nepodařilo nahrát. Zkontroluj připojení — a organizátor musí mít
+       ve Firebase otevřená <strong>Storage Rules</strong> (viz README).`);
+  }
+}
+
+async function loadPhotos() {
+  try {
+    const snap = await getDocs(query(
+      collection(db, "games", state.gameId, "teams", state.teamId, "photos"),
+      orderBy("createdAt", "desc")
+    ));
+    if (snap.empty) { $("photos").innerHTML = ""; return; }
+    $("photos").innerHTML = snap.docs.map((d) => {
+      const x = d.data();
+      return `<a href="${x.url}" target="_blank" rel="noopener">
+        <img src="${x.url}" alt="fotka týmu" loading="lazy" />
+        <span class="ptag">S${(x.pointIndex ?? 0) + 1}</span>
+      </a>`;
+    }).join("");
+  } catch (e) {
+    console.warn("fotky se nenačetly", e);
   }
 }
 

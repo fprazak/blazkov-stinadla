@@ -164,7 +164,7 @@ input[type="text"], input[type="password"] {
   border: 1px solid rgba(217,164,65,0.3);
   border-radius: 10px;
   color: var(--ink);
-  font-size: 1.05rem;
+  font-size: 16px; /* >=16px, ať iOS nezoomuje při fokusu */
   letter-spacing: 0.06em;
   font-family: var(--font-body);
   transition: border-color 0.2s, box-shadow 0.2s;
@@ -361,6 +361,130 @@ input.code-input {
   50%      { transform: scale(1.18); opacity: 0.7; }
 }
 
+/* --- postup trasou (kroky stanovišť) ---------------------------------- */
+.steps {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  margin: 16px 0 6px;
+  flex-wrap: wrap;
+}
+.step {
+  width: 38px; height: 38px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+  font-size: 0.95rem;
+  border: 2px solid rgba(217,164,65,0.35);
+  background: rgba(8,10,16,0.6);
+  color: var(--ink-dim);
+  position: relative;
+  z-index: 1;
+}
+.step.done {
+  background: radial-gradient(circle, var(--green), #3c7a46);
+  border-color: var(--green);
+  color: #eafff0;
+}
+.step.now {
+  background: radial-gradient(circle, var(--gold-bright), var(--gold));
+  border-color: var(--gold-bright);
+  color: #221a08;
+  box-shadow: 0 0 0 0 rgba(217,164,65,0.5);
+  animation: pulse 1.8s ease-out infinite;
+}
+@keyframes pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(217,164,65,0.45); }
+  100% { box-shadow: 0 0 0 14px rgba(217,164,65,0); }
+}
+.step-line {
+  width: 26px; height: 3px;
+  background: rgba(217,164,65,0.25);
+  border-radius: 2px;
+}
+.step-line.done { background: var(--green); }
+
+/* --- fotky z místa ----------------------------------------------------- */
+.photo-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+.photo-grid a {
+  display: block;
+  aspect-ratio: 1;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid rgba(217,164,65,0.3);
+  position: relative;
+}
+.photo-grid img {
+  width: 100%; height: 100%;
+  object-fit: cover;
+  display: block;
+  transition: transform 0.2s;
+}
+.photo-grid a:hover img { transform: scale(1.06); }
+.photo-grid .ptag {
+  position: absolute;
+  bottom: 4px; left: 4px;
+  background: rgba(0,0,0,0.65);
+  color: var(--gold-bright);
+  font-size: 0.68rem;
+  padding: 1px 7px;
+  border-radius: 99px;
+}
+.file-btn { cursor: pointer; }
+
+/* --- SOS nápověda (kompas) --------------------------------------------- */
+.help-card {
+  margin-top: 18px;
+  padding: 16px;
+  border: 1px dashed rgba(217,164,65,0.35);
+  border-radius: 12px;
+  background: rgba(8,10,16,0.45);
+}
+.compass-wrap {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  margin-top: 12px;
+}
+.compass-dial {
+  width: 92px; height: 92px;
+  flex: none;
+  border-radius: 50%;
+  border: 3px solid var(--gold);
+  background:
+    radial-gradient(circle at 50% 50%, #1c2333 0%, #0c0f17 75%);
+  display: grid;
+  place-items: center;
+  position: relative;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.5), inset 0 0 14px rgba(217,164,65,0.12);
+}
+.compass-dial .n {
+  position: absolute; top: 3px; left: 50%;
+  transform: translateX(-50%);
+  font-size: 0.7rem; font-weight: 700;
+  color: var(--blood);
+}
+.compass-needle {
+  font-size: 2rem;
+  line-height: 1;
+  transition: transform 0.6s cubic-bezier(.34,1.56,.64,1);
+  transform-origin: 50% 50%;
+  filter: drop-shadow(0 0 6px rgba(217,164,65,0.6));
+}
+.compass-info { flex: 1; min-width: 0; }
+.compass-info .deg {
+  font-family: var(--font-display);
+  font-size: 1.7rem;
+  color: var(--gold-bright);
+}
+
 /* --- stopa záznamů (trail) ------------------------------------------- */
 .trail-row {
   display: flex;
@@ -517,9 +641,22 @@ table.admin tr.solved-row td { background: rgba(95,174,107,0.06); }
   color: var(--ink-dim);
 }
 
+/* --- tabulky s vodorovným posuvem (mobil) ----------------------------- */
+.table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.table-scroll table.admin { min-width: 760px; }
+
 @media (max-width: 600px) {
-  h1.title { font-size: 2.1rem; }
-  .card { padding: 22px 18px; }
+  body { padding: 0 10px 48px; }
+  header.hero { padding: 22px 0 8px; }
+  .emblem { width: 96px; height: 96px; }
+  h1.title { font-size: 1.9rem; letter-spacing: 0.16em; }
+  .subtitle { font-size: 0.62rem; letter-spacing: 0.26em; }
+  .card { padding: 20px 16px; border-radius: 14px; }
+  .btn { min-height: 50px; }
+  .team-grid { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); }
+  .step { width: 32px; height: 32px; font-size: 0.85rem; }
+  .step-line { width: 16px; }
+  .compass-dial { width: 80px; height: 80px; }
   table.admin { font-size: 0.82rem; }
   table.admin th, table.admin td { padding: 8px 7px; }
 }

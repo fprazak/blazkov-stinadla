@@ -16,6 +16,11 @@
     .map-legend { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 14px; }
     .map-legend .pill { font-size: 0.78rem; }
     .leaflet-tooltip { font-size: 12px; }
+    .mini-photos { display: flex; flex-wrap: wrap; gap: 4px; max-width: 150px; }
+    .mini-photos a { display: block; width: 42px; height: 42px; border-radius: 6px;
+                     overflow: hidden; border: 1px solid rgba(217,164,65,0.35); }
+    .mini-photos img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    @media (max-width: 600px) { #map { height: 320px; } }
   </style>
 </head>
 <body>
@@ -257,6 +262,20 @@
             }
           } catch (e) { log = '<span class="muted">(nelze načíst)</span>'; }
 
+          // fotky týmu
+          let photosHtml = '<span class="muted">—</span>';
+          try {
+            const phSnap = await getDocs(query(
+              collection(db, "games", gameId, "teams", t.id, "photos"),
+              orderBy("createdAt", "desc")));
+            if (!phSnap.empty) {
+              photosHtml = `<div class="mini-photos">` + phSnap.docs.map(d => {
+                const x = d.data();
+                return `<a href="${x.url}" target="_blank" rel="noopener" title="S${(x.pointIndex ?? 0) + 1}"><img src="${x.url}" loading="lazy" alt=""/></a>`;
+              }).join("") + `</div>`;
+            }
+          } catch (e) { /* fotky nejsou kritické */ }
+
           teamsData.push({ name: t.name || t.id, points: p.points, captures: caps });
 
           // stav
@@ -291,21 +310,24 @@
               <td>${progress}</td>
               <td>${status}</td>
               <td class="attempt-log">${nav}</td>
-              <td>${t.captureCount || 0}</td>
+              <td>${t.captureCount || 0}${t.helpCount ? `<br><span class="muted">🆘 ×${t.helpCount}</span>` : ""}</td>
               <td class="attempt-log">${log}</td>
+              <td>${photosHtml}</td>
               <td>${fmt(t.finishedAt || t.arrivedAt)}</td>
             </tr>`;
         }
 
         $("table-slot").innerHTML = `
+          <div class="table-scroll">
           <table class="admin">
             <thead><tr>
               <th>Tým</th><th>Heslo</th><th>Postup</th><th>Stav</th>
               <th>Buzola → další cíl<br><span class="muted" style="font-weight:400">z posl. bodu</span></th>
-              <th>Záznamů</th><th>Stopa</th><th>V cíli</th>
+              <th>Záznamů</th><th>Stopa</th><th>📸 Fotky</th><th>V cíli</th>
             </tr></thead>
             <tbody>${rows}</tbody>
-          </table>`;
+          </table>
+          </div>`;
 
         renderMap(teamsData);
       } catch (e) {

@@ -23,6 +23,12 @@ import {
   signInAnonymously,
   onAuthStateChanged,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import {
+  getStorage,
+  ref as storageRef,
+  uploadBytes,
+  getDownloadURL,
+} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
 
 import { firebaseConfig } from "./firebase.js";
 
@@ -37,6 +43,7 @@ export function configIsFilled() {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
+const storage = getStorage(app);
 
 // Zkusí anonymní přihlášení, ale NEBLOKUJE appku, když selže —
 // s otevřenými pravidly (firestore.rules) není auth potřeba.
@@ -54,10 +61,14 @@ export function ensureAuth() {
   return authPromise;
 }
 
-// Re-export Firestore funkcí, ať je ostatní soubory nemusí importovat z CDN.
+// Re-export Firestore/Storage funkcí, ať je ostatní soubory nemusí importovat z CDN.
 export {
   db,
   auth,
+  storage,
+  storageRef,
+  uploadBytes,
+  getDownloadURL,
   collection,
   doc,
   getDoc,

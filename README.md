@@ -20,6 +20,7 @@ jen jako záloha přihlášeného týmu.
 | `db.js` | sdílená inicializace Firebase + anonymní přihlášení |
 | `styles.css` | atmosférický vzhled (mlha, lucerny, emblém) |
 | `firestore.rules` | **otevřená** pravidla (read/write pro kohokoli) |
+| `storage.rules` | **otevřená** pravidla pro Storage (fotky týmů) |
 
 ## 🎮 Chování
 1. Tým zadá své **tajné heslo** → aplikace najde tým ve Firestore podle
@@ -35,9 +36,15 @@ jen jako záloha přihlášeného týmu.
    `captures` jako **stopa**.
 5. Trefa do perimetru → posun na další stanoviště; po posledním
    `finished = true`, `finishedAt` a hláška *„Vrať se do tábora"*.
-6. Organizátor v `admin.html` vidí **mapu** (stanoviště všech tras +
-   nahrané polohy týmů), hesla, postup, azimut na buzolu k dalšímu cíli
-   a celou stopu.
+6. **📸 Fotky:** tým může na každém místě nahrát fotku (Firebase Storage,
+   zmenšená na max 1600 px). Fotky vidí tým i organizátor.
+7. **🆘 Ztraceni?** Tlačítko „Poradit směr" ukáže z poslední nahrané
+   polohy **azimut na buzolu** (0° = sever), směr růžice (S/SV/V…) a
+   vzdálenost vzdušnou čarou k dalšímu stanovišti. Počet použití vidí
+   organizátor.
+8. Organizátor v `admin.html` vidí **mapu** (stanoviště všech tras +
+   nahrané polohy týmů), hesla, postup, fotky, azimut na buzolu
+   k dalšímu cíli a celou stopu.
 
 ## 🗂 Struktura Firestore
 
@@ -88,7 +95,9 @@ s jedním, tedy finálním, stanovištěm.)
 1. [console.firebase.google.com](https://console.firebase.google.com) → projekt
 2. **Firestore Database → Create database**
 3. **Firestore → Rules** → vlož obsah `firestore.rules` (otevřená) → *Publish*
-4. Config je už doplněný v `firebase.js`.
+4. **Build → Storage → Get started**, pak **Storage → Rules** → vlož obsah
+   `storage.rules` (otevřená) → *Publish* — bez toho nejde nahrávat fotky
+5. Config je už doplněný v `firebase.js`.
 
 > Anonymní přihlášení je volitelné — s otevřenými pravidly appka funguje
 > i bez něj a není potřeba řešit Authorized domains. Pokud Anonymous Auth
