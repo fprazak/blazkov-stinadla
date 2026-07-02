@@ -95,6 +95,21 @@
         const isLat = (h)=>h==="N"||h==="S";
         return { lat: isLat(a.h)?a.v:b.v, lng: isLat(a.h)?b.v:a.v };
       }
+      // desetinné stupně s hemisférou: "49.1991635N, 16.5911653E" (Mapy.cz)
+      let toks = [...s.matchAll(/(\d+(?:\.\d+)?)\s*°?\s*([NSEWnsew])(?![A-Za-z0-9])/g)]
+        .map((p) => ({ v: parseFloat(p[1]), h: p[2].toUpperCase() }));
+      if (toks.length < 2) {
+        toks = [...s.matchAll(/\b([NSEWnsew])\s*°?\s*(\d+(?:\.\d+)?)/g)]
+          .map((p) => ({ v: parseFloat(p[2]), h: p[1].toUpperCase() }));
+      }
+      if (toks.length >= 2) {
+        let lat = null, lng = null;
+        for (const t of toks) {
+          if (t.h === "N") lat = t.v; else if (t.h === "S") lat = -t.v;
+          else if (t.h === "E") lng = t.v; else if (t.h === "W") lng = -t.v;
+        }
+        if (lat != null && lng != null && Math.abs(lat) <= 90 && Math.abs(lng) <= 180) return { lat, lng };
+      }
       m = s.match(/(-?\d+(?:\.\d+)?)\s*[,;\s]\s*(-?\d+(?:\.\d+)?)/);
       if (m) { const lat=+m[1], lng=+m[2]; if (Math.abs(lat)<=90&&Math.abs(lng)<=180) return {lat,lng}; }
       return null;
@@ -182,7 +197,11 @@
           if (bad) { errors.push(bad); return; }
           teams.push({ id: slug(name, i), name, points });
         });
-        if (!teams.length) throw new Error("Žádný platný tým. Vyplň název a stanoviště.");
+        if (!teams.length) {
+          throw new Error(errors.length
+            ? errors.join(" • ")
+            : "Žádný platný tým. Vyplň název a stanoviště.");
+        }
 
         // hra (pevné id "stinadla")
         const gameRef = doc(db, "games", GAME_ID);

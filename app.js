@@ -50,7 +50,27 @@ function parseCoords(raw) {
     return { lat, lng };
   }
 
-  // 3) desetinná dvojice "lat, lng" nebo "lat lng"
+  // 3) desetinné stupně s hemisférou: "49.1991635N, 16.5911653E"
+  //    (formát Mapy.cz) — i s prefixem "N49.199, E16.591"
+  let toks = [...s.matchAll(/(\d+(?:\.\d+)?)\s*°?\s*([NSEWnsew])(?![A-Za-z0-9])/g)]
+    .map((p) => ({ v: parseFloat(p[1]), h: p[2].toUpperCase() }));
+  if (toks.length < 2) {
+    toks = [...s.matchAll(/\b([NSEWnsew])\s*°?\s*(\d+(?:\.\d+)?)/g)]
+      .map((p) => ({ v: parseFloat(p[2]), h: p[1].toUpperCase() }));
+  }
+  if (toks.length >= 2) {
+    let lat = null, lng = null;
+    for (const t of toks) {
+      if (t.h === "N") lat = t.v;
+      else if (t.h === "S") lat = -t.v;
+      else if (t.h === "E") lng = t.v;
+      else if (t.h === "W") lng = -t.v;
+    }
+    if (lat != null && lng != null &&
+        Math.abs(lat) <= 90 && Math.abs(lng) <= 180) return { lat, lng };
+  }
+
+  // 4) desetinná dvojice "lat, lng" nebo "lat lng"
   m = s.match(/(-?\d+(?:\.\d+)?)\s*[,;\s]\s*(-?\d+(?:\.\d+)?)/);
   if (m) {
     const lat = +m[1], lng = +m[2];
