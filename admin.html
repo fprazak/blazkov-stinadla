@@ -73,11 +73,14 @@
   <script type="module">
     import {
       db, ensureAuth, configIsFilled,
-      collection, doc, getDoc, getDocs, query, orderBy,
+      collection, doc, getDoc, getDocs, query, orderBy, onSnapshot,
     } from "./db.js";
 
     const ADMIN_PASSWORD = "RychleSipy";
     const MAX_FINAL_ATTEMPTS = 3;
+    const HELP_PENALTY_MIN = 5;   // SOS nápověda
+    const PHOTO_BONUS_MIN = 2;    // fotka na stanovišti (1× za stanoviště)
+    const CIPHER_BONUS_MIN = 5;   // vyřešená šifra
     const $ = (id) => document.getElementById(id);
 
     // barvy týmů na mapě i v legendě
@@ -93,11 +96,25 @@
     $("btn-unlock").addEventListener("click", unlock);
     $("pwd").addEventListener("keydown", (e) => { if (e.key === "Enter") unlock(); });
     $("btn-refresh").addEventListener("click", load);
+    // živé aktualizace: každá změna týmu (pokus, fotka, SOS, šifra) spustí reload
+    let liveUnsub = null, reloadTimer = null;
+    function scheduleReload() {
+      clearTimeout(reloadTimer);
+      reloadTimer = setTimeout(load, 700); // debounce, ať se to nemele
+    }
+    function startLive() {
+      if (liveUnsub) return;
+      liveUnsub = onSnapshot(collection(db, "games", "stinadla", "teams"),
+        scheduleReload,
+        (e) => console.warn("live listener error", e));
+    }
+
     function unlock() {
       if ($("pwd").value === ADMIN_PASSWORD) {
         $("lock").classList.add("hidden");
         $("panel").classList.remove("hidden");
         load();
+        startLive();
       } else { $("lock-msg").innerHTML = `<div class="flash bad">Špatné heslo.</div>`; }
     }
 
@@ -105,6 +122,12 @@
       if (!ts) return "—";
       const d = ts.toDate ? ts.toDate() : new Date(ts);
       return d.toLocaleString("cs-CZ", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+    }
+    const tsMs = (ts) => ts ? (ts.toDate ? ts.toDate().getTime() : new Date(ts).getTime()) : null;
+    function fmtMin(min) {
+      if (min == null) return "—";
+      const h = Math.floor(min / 60), m = Math.round(min % 60);
+      return h ? `${h} h ${m} min` : `${m} min`;
     }
     function esc(s) {
       return String(s ?? "").replace(/[&<>"']/g, (c) =>
@@ -262,19 +285,39 @@
             }
           } catch (e) { log = '<span class="muted">(nelze načíst)</span>'; }
 
-          // fotky týmu
+          // fotky týmu (+ unikátní stanoviště s fotkou pro bonus)
           let photosHtml = '<span class="muted">—</span>';
+          let photoStations = 0;
           try {
             const phSnap = await getDocs(query(
               collection(db, "games", gameId, "teams", t.id, "photos"),
               orderBy("createdAt", "desc")));
             if (!phSnap.empty) {
+              photoStations = new Set(phSnap.docs.map(d => d.data().pointIndex ?? 0)).size;
               photosHtml = `<div class="mini-photos">` + phSnap.docs.map(d => {
                 const x = d.data();
                 return `<a href="${x.url}" target="_blank" rel="noopener" title="S${(x.pointIndex ?? 0) + 1}"><img src="${x.url}" loading="lazy" alt=""/></a>`;
               }).join("") + `</div>`;
             }
           } catch (e) { /* fotky nejsou kritické */ }
+
+          // časomíra + skóre (jen tady v adminu)
+          const ciphersSolved = Object.values(t.cipherSolved || {}).filter(Boolean).length;
+          const startMs = tsMs(t.startedAt);
+          const endMs = tsMs(t.finishedAt || t.arrivedAt);
+          let rawMin = null;
+          if (startMs) rawMin = ((endMs ?? Date.now()) - startMs) / 60000;
+          const penalty = (t.helpCount || 0) * HELP_PENALTY_MIN;
+          const bonus = photoStations * PHOTO_BONUS_MIN + ciphersSolved * CIPHER_BONUS_MIN;
+          const adjMin = rawMin != null ? Math.max(0, rawMin + penalty - bonus) : null;
+          const scoreParts = [];
+          if (t.helpCount) scoreParts.push(`<span style="color:#e89490">+${penalty} SOS</span>`);
+          if (photoStations) scoreParts.push(`<span class="a-ok">−${photoStations * PHOTO_BONUS_MIN} 📸</span>`);
+          if (ciphersSolved) scoreParts.push(`<span class="a-ok">−${ciphersSolved * CIPHER_BONUS_MIN} 🧩</span>`);
+          const timeHtml = rawMin == null
+            ? '<span class="muted">nestartoval</span>'
+            : `<strong>${fmtMin(adjMin)}</strong>${p.finished ? "" : ' <span class="muted">(běží)</span>'}<br>
+               <span class="muted" style="font-size:0.78rem">čistý ${fmtMin(rawMin)}${scoreParts.length ? " · " + scoreParts.join(" ") : ""}</span>`;
 
           teamsData.push({ name: t.name || t.id, points: p.points, captures: caps });
 
@@ -309,6 +352,7 @@
               <td><code>${esc(t.password || "—")}</code></td>
               <td>${progress}</td>
               <td>${status}</td>
+              <td class="attempt-log">${timeHtml}</td>
               <td class="attempt-log">${nav}</td>
               <td>${t.captureCount || 0}${t.helpCount ? `<br><span class="muted">🆘 ×${t.helpCount}</span>` : ""}</td>
               <td class="attempt-log">${log}</td>
@@ -318,10 +362,16 @@
         }
 
         $("table-slot").innerHTML = `
+          <p class="muted" style="margin:14px 0 4px;font-size:0.8rem">
+            ⏱ Bodování (jen pro tebe): čas od 1. záznamu do cíle ·
+            🆘 nápověda <strong>+${HELP_PENALTY_MIN} min</strong> ·
+            📸 fotka stanoviště <strong>−${PHOTO_BONUS_MIN} min</strong> ·
+            🧩 šifra <strong>−${CIPHER_BONUS_MIN} min</strong></p>
           <div class="table-scroll">
           <table class="admin">
             <thead><tr>
               <th>Tým</th><th>Heslo</th><th>Postup</th><th>Stav</th>
+              <th>⏱ Výsledný čas</th>
               <th>Buzola → další cíl<br><span class="muted" style="font-weight:400">z posl. bodu</span></th>
               <th>Záznamů</th><th>Stopa</th><th>📸 Fotky</th><th>V cíli</th>
             </tr></thead>

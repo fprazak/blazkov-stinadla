@@ -18,6 +18,9 @@ const LS_TEAM = "stinadla.teamId";
 
 const MAX_FINAL_ATTEMPTS = 3;   // pokusy na POSLEDNÍM stanovišti
 const DEFAULT_RADIUS_M = 25;
+const HELP_PENALTY_MIN = 5;     // SOS nápověda: +5 min k času
+const PHOTO_BONUS_MIN = 2;      // fotka ze stanoviště: −2 min
+const CIPHER_BONUS_MIN = 5;     // vyřešená šifra: −5 min
 
 // Parsování ručně vložených souřadnic.
 // Přijme desetinné "lat, lng", DMS "49°11.752'N 16°36.127'E"
@@ -125,7 +128,9 @@ let state = {
   gameTitle: "Stínadla",
   teamId: null,
   team: null,
-  lastCapture: null, // poslední nahraná poloha (pro SOS nápovědu)
+  lastCapture: null,          // poslední nahraná poloha (pro SOS nápovědu)
+  photosByPoint: new Set(),   // na kterých stanovištích už je fotka
+  helpArmed: false,           // dvoufázové potvrzení SOS (+5 min)
 };
 
 // --- DOM pomocné ------------------------------------------------------
@@ -138,6 +143,9 @@ function escapeHtml(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
+// Normalizace odpovědí/šifer: velká písmena, bez mezer a diakritiky.
+const norm = (s) => (s || "").normalize("NFD").replace(/[̀-ͯ]/g, "")
+  .trim().toUpperCase().replace(/\s+/g, "");
 
 // Posměšné "haha" hlášky, když je tým daleko ---------------------------
 const HAHA = [
@@ -159,6 +167,11 @@ function teamPoints(t) {
   if (t?.target && typeof t.target.lat === "number") return [t.target];
   return [];
 }
+
+// Kronika a šifry (pole paralelní s points; starší týmy je nemají).
+const teamStory = (t) => Array.isArray(t?.story) ? t.story : [];
+const teamCiphers = (t) => Array.isArray(t?.ciphers) ? t.ciphers : [];
+const cipherIsSolved = (t, i) => !!(t?.cipherSolved && t.cipherSolved[i]);
 
 // Kompletní stav postupu týmu.
 function teamProgress(t) {
@@ -195,6 +208,8 @@ function wireEvents() {
   $("btn-logout").addEventListener("click", logout);
   $("btn-help").addEventListener("click", onHelp);
   $("photo-input").addEventListener("change", onPhoto);
+  $("btn-cipher").addEventListener("click", onCipher);
+  $("cipher-answer").addEventListener("keydown", (e) => { if (e.key === "Enter") onCipher(); });
 }
 
 // --- najdi hru (přednostně pevné id "stinadla") -----------------------
@@ -268,8 +283,9 @@ function logout() {
 async function openTeam() {
   hide("screen-login");
   show("screen-team");
-  renderTeam();
+  renderTeam(); // první rychlé vykreslení
   await Promise.all([loadTrail(), loadPhotos()]);
+  renderTeam(); // znovu s načtenými fotkami (foto brána)
 }
 
 // --- vykreslení kroků trasy (①—②—③) ---------------------------------
@@ -310,9 +326,12 @@ function renderTeam() {
     return;
   }
 
+  renderKronika(p);
+
   if (p.finished) {
     hide("geo-box");
     hide("help-card");
+    hide("cipher-card");
     $("capture-form").classList.add("hidden");
     show("arrived-banner");
     $("arrived-banner").innerHTML =
@@ -324,6 +343,7 @@ function renderTeam() {
   if (p.locked) {
     hide("geo-box");
     hide("help-card");
+    hide("cipher-card");
     $("capture-form").classList.add("hidden");
     show("locked-banner");
     $("locked-banner").innerHTML =
@@ -335,18 +355,92 @@ function renderTeam() {
 
   const tgt = p.points[p.idx];
   const radius = Math.round(tgt.radiusM ?? DEFAULT_RADIUS_M);
+  const isSecondToLast = p.points.length >= 2 && p.idx === p.points.length - 2;
   $("point-title").textContent = `Stanoviště ${p.idx + 1} z ${p.points.length}`;
 
+  const hasPhotoHere = state.photosByPoint.has(p.idx);
+  let hint = "";
+
+  if (isSecondToLast) {
+    hint += `<div style="color:var(--blood);font-weight:700;margin-bottom:6px">
+      ⚠️ Toto stanoviště smí plnit POUZE VEDOUCÍ SÁM! Pokud budou pomáhat
+      děti, tým se propadá na poslední místo.</div>`;
+  }
   if (p.isLast) {
     const left = MAX_FINAL_ATTEMPTS - p.attemptsUsed;
-    $("point-hint").innerHTML =
-      `<strong style="color:var(--gold-bright)">Poslední stanoviště!</strong>
+    hint += `<strong style="color:var(--gold-bright)">Poslední stanoviště!</strong>
        Vlož souřadnice do ${radius} m od cíle.
        Zbývá <strong>${left}</strong> ${left === 1 ? "pokus" : "pokusy"} — vyber moudře.`;
   } else {
-    $("point-hint").innerHTML =
-      `Vlož souřadnice nalezeného místa (do ${radius} m od cíle). Pokusy neomezené.`;
+    hint += `Vlož souřadnice nalezeného místa (do ${radius} m od cíle). Pokusy neomezené.`;
   }
+  if (!hasPhotoHere) {
+    hint += `<div style="color:var(--gold-bright);margin-top:6px">
+      📸 Nejdřív nahraj fotku týmu z tohohle stanoviště — bez ní souřadnice nejdou odeslat.</div>`;
+  }
+  $("point-hint").innerHTML = hint;
+  $("btn-capture").disabled = !hasPhotoHere;
+
+  renderCipher(p);
+}
+
+// --- šifra aktuálního stanoviště --------------------------------------
+function renderCipher(p) {
+  const t = state.team;
+  const c = teamCiphers(t)[p.idx];
+  if (!c || !c.q) { hide("cipher-card"); return; }
+  show("cipher-card");
+  $("cipher-point").textContent = `${p.idx + 1}`;
+  $("cipher-q").textContent = c.q;
+  if (cipherIsSolved(t, p.idx)) {
+    $("cipher-form").classList.add("hidden");
+    flash("cipher-msg", "ok", `✓ Vyřešeno! Bonus <strong>−${CIPHER_BONUS_MIN} minut</strong> z času.`);
+  } else {
+    $("cipher-form").classList.remove("hidden");
+    clearFlash("cipher-msg");
+  }
+}
+
+async function onCipher() {
+  const t = state.team;
+  const p = teamProgress(t);
+  const c = teamCiphers(t)[p.idx];
+  if (!c || cipherIsSolved(t, p.idx)) return;
+  const guess = ($("cipher-answer").value || "").trim();
+  if (!guess) return;
+
+  const ok = norm(guess) === norm(c.a);
+  if (!ok) {
+    flash("cipher-msg", "bad", "Špatně. Rozhlédni se po stanovišti pořádně a zkus to znovu. 🙃");
+    return;
+  }
+  try {
+    await updateDoc(doc(db, "games", state.gameId, "teams", state.teamId), {
+      [`cipherSolved.${p.idx}`]: true,
+      updatedAt: serverTimestamp(),
+    });
+    state.team.cipherSolved = { ...(t.cipherSolved || {}), [p.idx]: true };
+    $("cipher-answer").value = "";
+    renderCipher(p);
+    confetti();
+  } catch (e) {
+    console.error(e);
+    flash("cipher-msg", "bad", "Odpověď se nepodařilo uložit — zkontroluj připojení.");
+  }
+}
+
+// --- kronika: odemčené texty stanovišť ---------------------------------
+function renderKronika(p) {
+  const story = teamStory(state.team);
+  const unlockedTo = p.finished ? p.points.length : p.idx; // splněná stanoviště
+  const items = [];
+  for (let i = 0; i < unlockedTo; i++) {
+    if (story[i]) items.push(
+      `<div class="kronika-item"><span class="kn">Stanoviště ${i + 1}</span>${escapeHtml(story[i])}</div>`);
+  }
+  if (!items.length) { hide("kronika-wrap"); return; }
+  show("kronika-wrap");
+  $("kronika").innerHTML = items.join("");
 }
 
 // --- záznam polohy (ruční vložení souřadnic) -------------------------
@@ -354,6 +448,14 @@ async function onCapture() {
   const t = state.team;
   const p = teamProgress(t);
   if (!p.points.length || p.finished || p.locked) { renderTeam(); return; }
+
+  // povinná fotka ze stanoviště před zadáním souřadnic
+  if (!state.photosByPoint.has(p.idx)) {
+    flash("capture-msg", "bad",
+      `📸 Nejdřív nahrajte <strong>fotku týmu z tohohle stanoviště</strong> (níže) —
+       teprve pak jde zadat souřadnice. Bonus: −${PHOTO_BONUS_MIN} min z času!`);
+    return;
+  }
 
   const raw = $("coords-input").value;
   const coords = parseCoords(raw);
@@ -378,6 +480,10 @@ async function onCapture() {
   $("btn-capture").disabled = true;
   $("capture-msg").innerHTML = '<div class="spinner"></div>';
 
+  // předchozí pokus na TOMHLE stanovišti (pro přihořívá/samá voda)
+  const prevDist = (state.lastCapture && (state.lastCapture.pointIndex ?? 0) === p.idx && !state.lastCapture.within)
+    ? state.lastCapture.distanceM : null;
+
   try {
     const teamRef = doc(db, "games", state.gameId, "teams", state.teamId);
 
@@ -396,6 +502,7 @@ async function onCapture() {
       captureCount: (t.captureCount ?? 0) + 1,
       updatedAt: serverTimestamp(),
     };
+    if (!t.startedAt) update.startedAt = serverTimestamp(); // start časomíry
     if (within) {
       const nextIdx = p.idx + 1;
       update.currentPointIndex = nextIdx;
@@ -423,38 +530,53 @@ async function onCapture() {
     const distR = Math.round(dist);
     if (within) {
       $("coords-input").value = "";
+      const story = teamStory(state.team)[p.idx];
+      const storyHtml = story
+        ? `<div style="margin-top:10px;padding-top:10px;border-top:1px dashed rgba(217,164,65,0.3)">
+             📜 <em>${escapeHtml(story)}</em></div>` : "";
       if (update.finished) {
         flash("capture-msg", "ok",
           `<span class="haha" style="color:var(--green)">Už jsi objevil, co bylo potřeba.</span>
-           Vrať se do tábora! 🏕️ <span class="muted">(${distR} m od cíle)</span>`);
+           Vrať se do tábora! 🏕️ <span class="muted">(${distR} m od cíle)</span>${storyHtml}`);
         confetti();
       } else {
         flash("capture-msg", "ok",
           `✓ <strong>Stanoviště ${p.idx + 1} objeveno!</strong> (${distR} m od cíle)<br>
-           Pokračuj na stanoviště ${p.idx + 2} z ${p.points.length}.`);
+           Pokračuj na stanoviště ${p.idx + 2} z ${p.points.length}.${storyHtml}`);
+        confetti();
       }
     } else {
+      // přihořívá / samá voda — srovnání s minulým pokusem na tomto stanovišti
+      let teplota = "";
+      if (prevDist != null) {
+        const diff = prevDist - distR;
+        if (diff > 5) teplota = `<div style="color:var(--gold-bright);margin-top:6px">🔥 <strong>Přihořívá!</strong> O ${diff} m blíž než minule.</div>`;
+        else if (diff < -5) teplota = `<div style="color:#9fc6e8;margin-top:6px">🧊 <strong>Samá voda…</strong> O ${-diff} m dál než minule!</div>`;
+        else teplota = `<div class="muted" style="margin-top:6px">😐 Zhruba stejně daleko jako minule.</div>`;
+      }
       const haha = HAHA[(t.captureCount ?? 0) % HAHA.length];
       if (p.isLast) {
         const left = MAX_FINAL_ATTEMPTS - (p.attemptsUsed + 1);
         flash("capture-msg", "bad",
           left > 0
             ? `<span class="haha">${haha}</span>
-               Tato poloha je <strong>${distR} m</strong> od cíle.
-               Na poslední stanoviště ${left === 1 ? "zbývá poslední pokus" : `zbývají ${left} pokusy`}!`
+               Tato poloha je <strong>${distR} m</strong> od cíle.${teplota}
+               <div style="margin-top:6px">Na poslední stanoviště ${left === 1 ? "zbývá poslední pokus" : `zbývají ${left} pokusy`}!</div>`
             : `<span class="haha">A to byl poslední pokus.</span>
                Tato poloha byla <strong>${distR} m</strong> od cíle. Vrať se do tábora.`);
       } else {
         flash("capture-msg", "bad",
           `<span class="haha">${haha}</span>
-           Tato poloha je <strong>${distR} m</strong> od cíle. Zkus jiné souřadnice — pokusy neomezené.`);
+           Tato poloha je <strong>${distR} m</strong> od cíle.${teplota}`);
       }
     }
   } catch (e) {
     console.error(e);
     flash("capture-msg", "bad", "Záznam se nepodařilo uložit. Zkontroluj připojení / Firestore Rules.");
   } finally {
-    $("btn-capture").disabled = false;
+    // znovu povolit jen pokud je na aktuálním stanovišti fotka a hra běží
+    const pp = teamProgress(state.team);
+    $("btn-capture").disabled = pp.finished || pp.locked || !state.photosByPoint.has(pp.idx);
   }
 }
 
@@ -506,6 +628,17 @@ async function onHelp() {
        kterým směrem a jak daleko je stanoviště ${p.idx + 1}.`);
     return;
   }
+
+  // dvoufázové potvrzení — nápověda stojí +5 minut
+  if (!state.helpArmed) {
+    state.helpArmed = true;
+    flash("help-msg", "info",
+      `⚠️ Nápověda přičte týmu <strong>+${HELP_PENALTY_MIN} minut</strong> k výslednému času.
+       Opravdu chcete poradit směr? <strong>Klepněte na tlačítko ještě jednou.</strong>`);
+    setTimeout(() => { state.helpArmed = false; }, 10000); // po 10 s vyprší
+    return;
+  }
+  state.helpArmed = false;
 
   const tgt = p.points[p.idx];
   const trueDeg = bearingDeg(last.lat, last.lng, tgt.lat, tgt.lng);
@@ -591,16 +724,31 @@ async function onPhoto(e) {
     await uploadBytes(ref, blob, { contentType: "image/jpeg" });
     const url = await getDownloadURL(ref);
 
+    const photoIdx = Math.min(p.idx, Math.max(p.points.length - 1, 0));
     // metadata do Firestore
     await addDoc(collection(db, "games", state.gameId, "teams", state.teamId, "photos"), {
       url,
       path: name,
-      pointIndex: Math.min(p.idx, Math.max(p.points.length - 1, 0)),
+      pointIndex: photoIdx,
       createdAt: serverTimestamp(),
     });
+    // photoCount na týmu (bonus −2 min/stanoviště + trigger živého adminu)
+    const firstHere = !state.photosByPoint.has(photoIdx);
+    try {
+      await updateDoc(doc(db, "games", state.gameId, "teams", state.teamId), {
+        photoCount: (t.photoCount ?? 0) + 1,
+        updatedAt: serverTimestamp(),
+      });
+      state.team.photoCount = (t.photoCount ?? 0) + 1;
+    } catch (e) { console.warn(e); }
 
-    flash("photo-msg", "ok", "✓ Fotka uložena. Kronikář Bratrstva ji už zkoumá. 🐾");
+    state.photosByPoint.add(photoIdx);
+    flash("photo-msg", "ok",
+      firstHere
+        ? `✓ Fotka uložena — <strong>−${PHOTO_BONUS_MIN} min</strong> z času! Teď můžete zadat souřadnice. 🐾`
+        : "✓ Fotka uložena. Kronikář Bratrstva ji už zkoumá. 🐾");
     await loadPhotos();
+    renderTeam(); // odemkne tlačítko souřadnic
   } catch (err) {
     console.error(err);
     flash("photo-msg", "bad",
@@ -615,6 +763,7 @@ async function loadPhotos() {
       collection(db, "games", state.gameId, "teams", state.teamId, "photos"),
       orderBy("createdAt", "desc")
     ));
+    state.photosByPoint = new Set(snap.docs.map((d) => d.data().pointIndex ?? 0));
     if (snap.empty) { $("photos").innerHTML = ""; return; }
     $("photos").innerHTML = snap.docs.map((d) => {
       const x = d.data();

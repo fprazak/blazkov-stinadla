@@ -14,6 +14,7 @@ import {
   where,
   orderBy,
   limit,
+  onSnapshot,
   serverTimestamp,
   setDoc,
   Timestamp,
@@ -80,6 +81,7 @@ export {
   where,
   orderBy,
   limit,
+  onSnapshot,
   serverTimestamp,
   Timestamp,
 };

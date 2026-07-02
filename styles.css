@@ -506,6 +506,26 @@ input.code-input {
 .help-card .row { flex-wrap: wrap; }
 .help-card .row .btn { flex: 1 1 auto; }
 
+/* --- kronika ----------------------------------------------------------- */
+.kronika-item {
+  padding: 12px 14px;
+  margin-bottom: 8px;
+  background: linear-gradient(180deg, rgba(233,225,200,0.06), rgba(233,225,200,0.02));
+  border-left: 3px solid var(--gold);
+  border-radius: 0 10px 10px 0;
+  font-style: italic;
+  line-height: 1.5;
+}
+.kronika-item .kn {
+  display: block;
+  font-style: normal;
+  font-size: 0.68rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--gold);
+  margin-bottom: 4px;
+}
+
 /* --- stopa záznamů (trail) ------------------------------------------- */
 .trail-row {
   display: flex;
@@ -660,6 +680,15 @@ table.admin tr.solved-row td { background: rgba(95,174,107,0.06); }
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--ink-dim);
+}
+
+/* --- setup bloky týmů (seed) ------------------------------------------ */
+.team-setup {
+  border: 1px solid rgba(217,164,65,0.25);
+  border-radius: 12px;
+  padding: 16px;
+  margin: 12px 0;
+  background: rgba(8,10,16,0.4);
 }
 
 /* --- tabulky s vodorovným posuvem (mobil) ----------------------------- */

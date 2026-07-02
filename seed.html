@@ -46,10 +46,7 @@
       </div>
 
       <h3 style="font-family:var(--font-display);color:var(--paper);margin:20px 0 8px">Týmy</h3>
-      <table class="admin" id="teams-table">
-        <thead><tr><th style="width:28%">Název týmu</th><th>Stanoviště — jeden bod na řádek, poslední = finální</th><th></th></tr></thead>
-        <tbody id="teams-rows"></tbody>
-      </table>
+      <div id="teams-rows"></div>
       <button id="btn-add-row" class="btn ghost" style="width:auto;margin-top:10px">+ Přidat tým</button>
 
       <label style="display:flex;align-items:center;gap:8px;margin-top:18px;color:var(--ink-dim);font-size:0.9rem">
@@ -136,16 +133,26 @@
       return x || ("team-" + (i+1));
     }
 
-    // --- řádky týmů --------------------------------------------------
-    function addRow(name = "", coords = "") {
-      const tr = document.createElement("tr");
-      tr.innerHTML = `
-        <td><input type="text" class="t-name" placeholder="Tým 1" value="${name}"></td>
-        <td><textarea class="t-coords" rows="4"
-          placeholder="49.195869, 16.602122&#10;49.197000, 16.605000&#10;49.199000, 16.608000  ← finální">${coords}</textarea></td>
-        <td><a class="back-link t-del" style="margin:0">✕</a></td>`;
-      tr.querySelector(".t-del").addEventListener("click", () => tr.remove());
-      $("teams-rows").appendChild(tr);
+    // --- bloky týmů ----------------------------------------------------
+    function addRow(name = "") {
+      const div = document.createElement("div");
+      div.className = "team-setup";
+      div.innerHTML = `
+        <div class="row" style="justify-content:space-between;align-items:center;gap:10px">
+          <input type="text" class="t-name" placeholder="Název týmu" value="${name}" style="flex:1">
+          <a class="back-link t-del" style="margin:0;flex:none">✕ odebrat</a>
+        </div>
+        <label class="field-label" style="margin-top:10px">Stanoviště — jeden bod na řádek, poslední = finální</label>
+        <textarea class="t-coords" rows="4"
+          placeholder="49.195869, 16.602122&#10;49.1994299N, 16.5907909E&#10;49.199000, 16.608000   ← finální"></textarea>
+        <label class="field-label" style="margin-top:10px">📜 Kronika / nápovědy (volitelné) — řádek N se odemkne po splnění stanoviště N</label>
+        <textarea class="t-story" rows="3"
+          placeholder="Dobrá práce! Další stopa: hledejte starou lípu u kapličky.&#10;Vontové vás sledují… jděte k mostu přes potok.&#10;Poslední text — zobrazí se po dokončení."></textarea>
+        <label class="field-label" style="margin-top:10px">🧩 Šifry za bonus −5 min (volitelné) — řádek N: otázka | odpověď (prázdný řádek = bez šifry)</label>
+        <textarea class="t-cipher" rows="3"
+          placeholder="Kolik oken má kaplička? | 4&#10;&#10;Co je napsáno na pomníku? | JEZEK"></textarea>`;
+      div.querySelector(".t-del").addEventListener("click", () => div.remove());
+      $("teams-rows").appendChild(div);
     }
 
     if (!configIsFilled()) {
@@ -175,15 +182,15 @@
         const title = $("title").value.trim() || "Stínadla";
         const radiusM = parseFloat($("radius").value) || 25;
 
-        // posbírej řádky
-        const rows = [...$("teams-rows").children];
+        // posbírej bloky týmů
+        const rows = [...document.querySelectorAll(".team-setup")];
         const teams = [];
         const errors = [];
         rows.forEach((tr, i) => {
           const name = tr.querySelector(".t-name").value.trim();
           const coordsRaw = tr.querySelector(".t-coords").value.trim();
-          if (!name && !coordsRaw) return; // prázdný řádek
-          if (!name) { errors.push(`Řádek ${i+1}: chybí název týmu.`); return; }
+          if (!name && !coordsRaw) return; // prázdný blok
+          if (!name) { errors.push(`Blok ${i+1}: chybí název týmu.`); return; }
           // každý neprázdný řádek textarey = jedno stanoviště
           const lines = coordsRaw.split("\n").map(l => l.trim()).filter(Boolean);
           if (!lines.length) { errors.push(`Tým „${name}": chybí stanoviště.`); return; }
@@ -200,7 +207,23 @@
             points.push({ ...c, radiusM });
           });
           if (bad) { errors.push(bad); return; }
-          teams.push({ id: slug(name, i), name, points });
+
+          // kronika: řádek N (i prázdný uprostřed) patří stanovišti N
+          const storyLines = tr.querySelector(".t-story").value.split("\n").map(l => l.trim());
+          const story = points.map((_, j) => storyLines[j] || "");
+
+          // šifry: řádek N = "otázka | odpověď"; prázdný = bez šifry
+          const cipherLines = tr.querySelector(".t-cipher").value.split("\n").map(l => l.trim());
+          const ciphers = points.map((_, j) => {
+            const line = cipherLines[j] || "";
+            const sep = line.indexOf("|");
+            if (sep < 1) return null;
+            const q = line.slice(0, sep).trim();
+            const a = line.slice(sep + 1).trim();
+            return q && a ? { q, a } : null;
+          });
+
+          teams.push({ id: slug(name, i), name, points, story, ciphers });
         });
         if (!teams.length) {
           throw new Error(errors.length
@@ -228,8 +251,10 @@
           const pwd = randPassword();
           await setDoc(doc(db, "games", GAME_ID, "teams", t.id), {
             name: t.name, password: pwd, points: t.points,
+            story: t.story, ciphers: t.ciphers,
+            cipherSolved: {}, photoCount: 0, helpCount: 0,
             currentPointIndex: 0, finalAttemptsUsed: 0,
-            finished: false, finishedAt: null,
+            startedAt: null, finished: false, finishedAt: null,
             bestDistanceM: null, captureCount: 0,
             createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
           });

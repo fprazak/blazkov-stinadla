@@ -7,6 +7,11 @@
   <title>Stínadla — Záhada hlavolamu</title>
   <link rel="stylesheet" href="styles.css" />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🦔</text></svg>" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="apple-touch-icon" href="icon-192.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Stínadla" />
 </head>
 <body>
   <div class="fog"></div>
@@ -98,27 +103,48 @@
         <div class="row" style="justify-content:space-between;align-items:center;gap:12px">
           <div>
             <strong>🆘 Ztratili jste se?</strong>
-            <div class="muted" style="font-size:0.85rem">Ukážu ti, kolik metrů a jakým směrem
-              (azimut na buzolu) je to k dalšímu stanovišti — z tvé poslední nahrané polohy.</div>
+            <div class="muted" style="font-size:0.85rem">Ukážu směr a vzdálenost k dalšímu
+              stanovišti. <strong style="color:var(--blood)">Pozor: každá nápověda přičte
+              týmu +5 minut k času!</strong></div>
           </div>
-          <button id="btn-help" class="btn ghost" style="width:auto;margin:0;flex:none">Poradit&nbsp;směr</button>
+          <button id="btn-help" class="btn ghost" style="width:auto;margin:0;flex:none">Poradit&nbsp;směr&nbsp;(+5&nbsp;min)</button>
         </div>
         <div id="help-msg"></div>
+      </div>
+
+      <!-- šifra za bonus -->
+      <div class="help-card hidden" id="cipher-card">
+        <strong>🧩 Šifra stanoviště <span id="cipher-point"></span></strong>
+        <div class="muted" style="font-size:0.85rem">Vyřešení = <strong>−5 minut</strong> z času týmu. Odpověď najdete na místě.</div>
+        <p id="cipher-q" style="margin:10px 0 6px;font-family:var(--font-display);color:var(--paper)"></p>
+        <div id="cipher-form" class="row" style="gap:8px">
+          <input id="cipher-answer" type="text" autocomplete="off" placeholder="odpověď" style="flex:1" />
+          <button id="btn-cipher" class="btn ghost" style="width:auto;margin:0;flex:none">Odpovědět</button>
+        </div>
+        <div id="cipher-msg"></div>
       </div>
 
       <!-- fotky z místa -->
       <div class="help-card" id="photo-card">
         <div class="row" style="justify-content:space-between;align-items:center;gap:12px">
           <div>
-            <strong>📸 Fotka z místa</strong>
-            <div class="muted" style="font-size:0.85rem">Vyfoťte se na stanovišti —
-              důkaz pro kronikáře Bratrstva. Čím vtipnější, tím lepší.</div>
+            <strong>📸 Fotka z místa — povinná!</strong>
+            <div class="muted" style="font-size:0.85rem">Na každém stanovišti nejdřív
+              nahrajte fotku týmu, teprve pak jde zadat souřadnice.
+              Odměna: <strong style="color:var(--green)">−2 minuty</strong> z času.
+              Čím vtipnější, tím lepší.</div>
           </div>
           <label class="btn ghost file-btn" for="photo-input" style="width:auto;margin:0;flex:none">Nahrát&nbsp;fotku</label>
           <input type="file" id="photo-input" accept="image/*" capture="environment" style="display:none" />
         </div>
         <div id="photo-msg"></div>
         <div class="photo-grid" id="photos"></div>
+      </div>
+
+      <!-- kronika: odemčené texty -->
+      <div id="kronika-wrap" class="hidden">
+        <h3 style="margin:22px 0 8px;font-family:var(--font-display);color:var(--paper)">📜 Kronika výpravy</h3>
+        <div id="kronika"></div>
       </div>
 
       <h3 style="margin:22px 0 8px;font-family:var(--font-display);color:var(--paper)">👣 Tvoje stopa</h3>
@@ -132,5 +158,11 @@
   </div>
 
   <script type="module" src="app.js"></script>
+  <script>
+    // PWA: service worker (network-first, cache jen jako offline záloha)
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js").catch(() => {}));
+    }
+  </script>
 </body>
 </html>
