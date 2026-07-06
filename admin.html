@@ -175,6 +175,9 @@
     }
     const DIRS = ["S","SSV","SV","VSV","V","VJV","JV","JJV","J","JJZ","JZ","ZJZ","Z","ZSZ","SZ","SSZ"];
     const compass = deg => DIRS[Math.round(deg/22.5) % 16];
+    // magnetická deklinace ČR (~5° V) — stejné číslo, jaké vidí týmy na buzole
+    const DECLINATION_DEG = 5;
+    const toMagnetic = (d) => ((d - DECLINATION_DEG) % 360 + 360) % 360;
 
     // --- mapa ---------------------------------------------------------
     let map = null, mapLayer = null;
@@ -200,8 +203,15 @@
           if (!pointGroups.has(key)) {
             pointGroups.set(key, { lat: pt.lat, lng: pt.lng, radiusM: pt.radiusM ?? 25, items: [] });
           }
+          // navigace k DALŠÍMU bodu trasy tohoto týmu
+          const next = td.points[j + 1];
+          let nav = null;
+          if (next) {
+            const b = Math.round(toMagnetic(bearingDeg(pt.lat, pt.lng, next.lat, next.lng)));
+            nav = { deg: b, dir: compass(b), dist: Math.round(distM(pt.lat, pt.lng, next.lat, next.lng)) };
+          }
           pointGroups.get(key).items.push({
-            team: td.name, color, num: j + 1, isFinal: j === td.points.length - 1,
+            team: td.name, color, num: j + 1, isFinal: j === td.points.length - 1, nav,
           });
         });
       });
@@ -234,14 +244,25 @@
           });
         }
         const listHtml = `
-          <div style="font-size:13px;min-width:200px">
+          <div style="font-size:13px;min-width:230px">
             <strong>${shared ? `Sdílené stanoviště — ${g.items.length} týmy` : "Stanoviště"}</strong>
             <div style="color:#666;font-size:11px;margin-bottom:6px">${g.lat.toFixed(6)}, ${g.lng.toFixed(6)} · ±${g.radiusM} m</div>
             ${g.items.map(it => `
-              <div style="display:flex;align-items:center;gap:6px;padding:3px 0">
-                <span style="width:11px;height:11px;border-radius:50%;background:${it.color};flex:none"></span>
-                <span>${esc(it.team)} — <strong>stanoviště ${it.num}</strong>${it.isFinal ? " 🏁 finální" : ""}</span>
+              <div style="padding:4px 0;border-top:1px solid #eee">
+                <div style="display:flex;align-items:center;gap:6px">
+                  <span style="width:11px;height:11px;border-radius:50%;background:${it.color};flex:none"></span>
+                  <span>${esc(it.team)} — <strong>stanoviště ${it.num}</strong>${it.isFinal ? " 🏁 finální" : ""}</span>
+                </div>
+                ${it.nav ? `<div style="color:#555;font-size:12px;margin:2px 0 0 17px">
+                  → další bod: <strong>${it.nav.dist} m</strong>, azimut <strong>${it.nav.deg}°</strong> ${it.nav.dir}
+                  <span style="color:#999">(buzola)</span></div>` : ""}
               </div>`).join("")}
+            <div style="margin-top:8px;padding-top:6px;border-top:1px solid #ddd;font-size:12px">
+              <a href="https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${g.lat},${g.lng}"
+                 target="_blank" rel="noopener">Street View ↗</a> ·
+              <a href="https://mapy.cz/zakladni?pano=1&x=${g.lng}&y=${g.lat}&z=19"
+                 target="_blank" rel="noopener">Mapy.cz panorama ↗</a>
+            </div>
           </div>`;
         L.marker([g.lat, g.lng], { icon }).addTo(mapLayer)
           .bindTooltip(shared
@@ -401,9 +422,9 @@
           } else if (p.points.length && p.idx < p.points.length && caps.length) {
             const lastCap = caps[caps.length - 1];
             const tgt = p.points[p.idx];
-            const b = bearingDeg(lastCap.lat, lastCap.lng, tgt.lat, tgt.lng);
+            const b = Math.round(toMagnetic(bearingDeg(lastCap.lat, lastCap.lng, tgt.lat, tgt.lng)));
             const d = Math.round(distM(lastCap.lat, lastCap.lng, tgt.lat, tgt.lng));
-            nav = `<strong style="color:var(--gold-bright);font-size:1.05rem">${Math.round(b)}°</strong> ${compass(b)}<br><span class="muted">${d} m k S${p.idx + 1}</span>`;
+            nav = `<strong style="color:var(--gold-bright);font-size:1.05rem">${b}°</strong> ${compass(b)}<br><span class="muted">${d} m k S${p.idx + 1}</span>`;
           }
 
           rows += `
