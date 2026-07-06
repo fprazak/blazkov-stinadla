@@ -76,7 +76,8 @@
       collection, doc, getDoc, getDocs, query, orderBy, onSnapshot,
     } from "./db.js";
 
-    const ADMIN_PASSWORD = "RychleSipy";
+    const ADMIN_PASSWORD = "1";
+    const LS_ADMIN = "stinadla.adminOk";
     const MAX_FINAL_ATTEMPTS = 3;
     const HELP_PENALTY_MIN = 5;   // SOS nápověda
     const PHOTO_BONUS_MIN = 2;    // fotka na stanovišti (1× za stanoviště)
@@ -109,14 +110,20 @@
         (e) => console.warn("live listener error", e));
     }
 
+    function openPanel() {
+      $("lock").classList.add("hidden");
+      $("panel").classList.remove("hidden");
+      load();
+      startLive();
+    }
     function unlock() {
       if ($("pwd").value === ADMIN_PASSWORD) {
-        $("lock").classList.add("hidden");
-        $("panel").classList.remove("hidden");
-        load();
-        startLive();
+        localStorage.setItem(LS_ADMIN, "1"); // zapamatovat v prohlížeči
+        openPanel();
       } else { $("lock-msg").innerHTML = `<div class="flash bad">Špatné heslo.</div>`; }
     }
+    // už jednou přihlášen v tomto prohlížeči → rovnou dovnitř
+    if (localStorage.getItem(LS_ADMIN) === "1") openPanel();
 
     function fmt(ts) {
       if (!ts) return "—";
