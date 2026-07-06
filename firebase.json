@@ -1,5 +1,4 @@
 {
-  "comment": "Volitelné Firebase Hosting. Primárně se počítá s GitHub Pages.",
   "firestore": {
     "rules": "firestore.rules"
   },
@@ -8,9 +7,24 @@
     "ignore": [
       "firebase.json",
       "firestore.rules*",
+      "storage.rules",
       "**/.*",
       "**/node_modules/**",
       "README.md"
+    ],
+    "headers": [
+      {
+        "source": "**/*.@(html|js|css|json)",
+        "headers": [
+          { "key": "Cache-Control", "value": "no-cache" }
+        ]
+      },
+      {
+        "source": "**/*.@(png|jpg|svg|ico)",
+        "headers": [
+          { "key": "Cache-Control", "value": "public, max-age=86400" }
+        ]
+      }
     ]
   }
 }
