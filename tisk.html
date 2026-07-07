@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Stínadla — Tisk kartiček a tras</title>
+  <link rel="preconnect" href="https://www.gstatic.com" crossorigin />
+  <link rel="preconnect" href="https://firestore.googleapis.com" />
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: "Segoe UI", system-ui, sans-serif;
+      color: #111; background: #fff;
+      margin: 0; padding: 24px;
+    }
+    h1 { font-size: 1.3rem; margin: 0 0 4px; }
+    h2 { font-size: 1.05rem; margin: 22px 0 8px; border-bottom: 2px solid #111; padding-bottom: 4px; }
+    .muted { color: #666; font-size: 0.85rem; }
+
+    .toolbar { margin: 12px 0 20px; display: flex; gap: 10px; flex-wrap: wrap; }
+    .toolbar button {
+      padding: 10px 18px; font-size: 1rem; cursor: pointer;
+      border: 2px solid #111; background: #111; color: #fff; border-radius: 8px;
+    }
+    .toolbar button.ghost { background: #fff; color: #111; }
+
+    /* --- kartičky na vystřižení --------------------------------------- */
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, 52mm);
+      gap: 4mm;
+    }
+    .karta {
+      width: 52mm; height: 52mm;
+      border: 1.5px dashed #999;
+      border-radius: 3mm;
+      display: flex; flex-direction: column;
+      overflow: hidden;
+      break-inside: avoid;
+      background: #fff;
+    }
+    .k-head {
+      background: var(--c, #333); color: #fff;
+      font-weight: 800; font-size: 4.4mm;
+      padding: 2.2mm 3mm; letter-spacing: 0.03em;
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .k-body { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1mm; }
+    .k-az { font-size: 10.5mm; font-weight: 800; line-height: 1; }
+    .k-az small { font-size: 5.5mm; font-weight: 700; }
+    .k-dist { font-size: 4.6mm; font-weight: 600; }
+    .k-cil { font-size: 7mm; font-weight: 800; text-align: center; line-height: 1.2; }
+    .k-coord {
+      font-family: "Courier New", monospace; font-size: 3mm;
+      text-align: center; color: #555; padding: 1.5mm; border-top: 1px solid #ddd;
+    }
+
+    /* --- tabulky tras --------------------------------------------------- */
+    .route { break-inside: avoid; margin-bottom: 14px; }
+    .route h3 { margin: 0 0 4px; font-size: 1rem; }
+    .route h3 .dot { display: inline-block; width: 11px; height: 11px; border-radius: 50%; margin-right: 6px; }
+    .route code { background: #eee; padding: 1px 7px; border-radius: 4px; font-size: 0.9rem; }
+    table { border-collapse: collapse; width: 100%; max-width: 640px; font-size: 0.85rem; }
+    th, td { border: 1px solid #bbb; padding: 4px 8px; text-align: left; }
+    th { background: #f0f0f0; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; }
+    td.mono { font-family: "Courier New", monospace; }
+
+    @media print {
+      body { padding: 0; }
+      .no-print { display: none !important; }
+      .cards { grid-template-columns: repeat(3, 52mm); }
+      h2 { page-break-before: auto; }
+      #sekce-trasy { page-break-before: always; }
+    }
+  </style>
+</head>
+<body>
+  <div class="no-print">
+    <h1>🦔 Stínadla — tisk kartiček a tras</h1>
+    <p class="muted">Kartičky 52×52 mm na vystřižení (jedna na každé stanoviště každého týmu) +
+      přehled tras. Data se načítají živě z databáze.</p>
+    <div class="toolbar">
+      <button onclick="window.print()">🖨 Vytisknout</button>
+      <button class="ghost" onclick="location.href='admin.html'">← zpět do přehledu</button>
+    </div>
+  </div>
+
+  <div id="obsah"><p class="muted">Načítám data…</p></div>
+
+  <script type="module">
+    import { db, collection, getDocs } from "./db.js";
+
+    const PALETTE = ["#e6194b","#3cb44b","#4363d8","#f58231","#911eb4",
+                     "#42d4f4","#f032e6","#bfef45","#fabed4","#469990"];
+    const DIRS = ["S","SSV","SV","VSV","V","VJV","JV","JJV","J","JJZ","JZ","ZJZ","Z","ZSZ","SZ","SSZ"];
+    const compass = d => DIRS[Math.round(d / 22.5) % 16];
+    const DECLINATION_DEG = 5;
+    const toMagnetic = d => ((d - DECLINATION_DEG) % 360 + 360) % 360;
+    function bearingDeg(aLat, aLng, bLat, bLng) {
+      const r = x => x * Math.PI / 180, g = x => x * 180 / Math.PI;
+      const y = Math.sin(r(bLng - aLng)) * Math.cos(r(bLat));
+      const x = Math.cos(r(aLat)) * Math.sin(r(bLat)) - Math.sin(r(aLat)) * Math.cos(r(bLat)) * Math.cos(r(bLng - aLng));
+      return (g(Math.atan2(y, x)) + 360) % 360;
+    }
+    function distM(aLat, aLng, bLat, bLng) {
+      const R = 6371000, r = x => x * Math.PI / 180;
+      const h = Math.sin(r(bLat - aLat) / 2) ** 2 +
+                Math.cos(r(aLat)) * Math.cos(r(bLat)) * Math.sin(r(bLng - aLng) / 2) ** 2;
+      return 2 * R * Math.asin(Math.sqrt(h));
+    }
+    const esc = s => String(s ?? "").replace(/[&<>"']/g, c =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+    // krátké jméno na kartičku: "Tým 1 — Červená" → "ČERVENÁ"
+    const shortName = (name) => {
+      const m = name.match(/—\s*(.+)$/);
+      return (m ? m[1] : name).toUpperCase();
+    };
+
+    async function run() {
+      const snap = await getDocs(collection(db, "games", "stinadla", "teams"));
+      const teams = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+        .filter(t => Array.isArray(t.points) && t.points.length)
+        .sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id, "cs"));
+
+      let cards = "", routes = "";
+      teams.forEach((t, i) => {
+        const color = PALETTE[i % PALETTE.length];
+        const pts = t.points;
+
+        pts.forEach((pt, j) => {
+          const isFinal = j === pts.length - 1;
+          const next = pts[j + 1];
+          let body;
+          if (isFinal || !next) {
+            body = `<div class="k-cil">🏁 CÍL<br><span style="font-size:4.4mm;font-weight:600">Vrať se do tábora!</span></div>`;
+          } else {
+            const b = Math.round(toMagnetic(bearingDeg(pt.lat, pt.lng, next.lat, next.lng)));
+            const d = Math.round(distM(pt.lat, pt.lng, next.lat, next.lng));
+            body = `
+              <div class="k-dist">Další bod: <strong>${d} m</strong></div>
+              <div class="k-az">${b}° <small>${compass(b)}</small></div>
+              <div class="muted" style="font-size:3.2mm">azimut na buzolu (magnetický)</div>`;
+          }
+          cards += `
+            <div class="karta" style="--c:${color}">
+              <div class="k-head"><span>${esc(shortName(t.name || t.id))}</span><span>S${j + 1}${isFinal ? " 🏁" : ""}</span></div>
+              <div class="k-body">${body}</div>
+              <div class="k-coord">${pt.lat.toFixed(6)}, ${pt.lng.toFixed(6)}</div>
+            </div>`;
+        });
+
+        // tabulka trasy
+        const rows = pts.map((pt, j) => {
+          const isFinal = j === pts.length - 1;
+          const next = pts[j + 1];
+          let nd = "—", na = "—";
+          if (next) {
+            const b = Math.round(toMagnetic(bearingDeg(pt.lat, pt.lng, next.lat, next.lng)));
+            nd = Math.round(distM(pt.lat, pt.lng, next.lat, next.lng)) + " m";
+            na = `${b}° ${compass(b)}`;
+          }
+          return `<tr><td><strong>S${j + 1}</strong>${isFinal ? " 🏁" : ""}</td>
+            <td class="mono">${pt.lat.toFixed(6)}, ${pt.lng.toFixed(6)}</td>
+            <td>${nd}</td><td><strong>${na}</strong></td></tr>`;
+        }).join("");
+        routes += `
+          <div class="route">
+            <h3><span class="dot" style="background:${color}"></span>${esc(t.name || t.id)}
+              <code>${esc(t.password || "")}</code></h3>
+            <table>
+              <thead><tr><th>Bod</th><th>Souřadnice</th><th>→ další bod</th><th>Azimut (buzola)</th></tr></thead>
+              <tbody>${rows}</tbody>
+            </table>
+          </div>`;
+      });
+
+      document.getElementById("obsah").innerHTML = `
+        <h2>✂️ Kartičky stanovišť (${teams.reduce((s, t) => s + t.points.length, 0)} ks)</h2>
+        <div class="cards">${cards}</div>
+        <h2 id="sekce-trasy">📋 Trasy týmů</h2>
+        ${routes}`;
+    }
+    run().catch(e => {
+      document.getElementById("obsah").innerHTML =
+        `<p style="color:#c00">Data se nepodařilo načíst: ${esc(e.message)}</p>`;
+    });
+  </script>
+</body>
+</html>
