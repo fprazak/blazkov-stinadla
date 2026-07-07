@@ -25,10 +25,13 @@
     .toolbar button.ghost { background: #fff; color: #111; }
 
     /* --- kartičky na vystřižení --------------------------------------- */
-    .cards {
+    .cards-page {
       display: grid;
-      grid-template-columns: repeat(auto-fill, 52mm);
+      grid-template-columns: repeat(3, 52mm);
+      grid-template-rows: repeat(3, 52mm);
       gap: 4mm;
+      width: 164mm;
+      margin-bottom: 8mm;
     }
     .karta {
       width: 52mm; height: 52mm;
@@ -68,7 +71,10 @@
     @media print {
       body { padding: 0; }
       .no-print { display: none !important; }
-      .cards { grid-template-columns: repeat(3, 52mm); }
+      /* přesně 3×3 kartičky na A4, zlom mezi stránkami */
+      .cards-page { page-break-after: always; break-after: page; margin-bottom: 0; }
+      .cards-page:last-of-type { page-break-after: auto; break-after: auto; }
+      .karta { break-inside: avoid; page-break-inside: avoid; }
       h2 { page-break-before: auto; }
       #sekce-trasy { page-break-before: always; }
     }
@@ -143,7 +149,7 @@
         .filter(t => Array.isArray(t.points) && t.points.length)
         .sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id, "cs"));
 
-      let cards = "", routes = "";
+      const cardList = []; let routes = "";
       teams.forEach((t, i) => {
         const color = teamColor(t.name || t.id, i);
         const pts = t.points;
@@ -152,7 +158,7 @@
         if (start && pts.length) {
           const b = Math.round(toMagnetic(bearingDeg(start.lat, start.lng, pts[0].lat, pts[0].lng)));
           const d = Math.round(distM(start.lat, start.lng, pts[0].lat, pts[0].lng));
-          cards += `
+          cardList.push(`
             <div class="karta" style="--c:${color}">
               <div class="k-head"><span>${esc(shortName(t.name || t.id))}</span><span>⛺ START</span></div>
               <div class="k-body">
@@ -160,7 +166,7 @@
                 <div class="k-az">${b}° <small>${compass(b)}</small></div>
               </div>
               <div class="k-coord">${start.lat.toFixed(6)}, ${start.lng.toFixed(6)}</div>
-            </div>`;
+            </div>`);
         }
 
         pts.forEach((pt, j) => {
@@ -177,12 +183,12 @@
               <div class="k-dist">Další bod: <strong>${d} m</strong></div>
               <div class="k-az">${b}° <small>${compass(b)}</small></div>`;
           }
-          cards += `
+          cardList.push(`
             <div class="karta" style="--c:${color}">
               <div class="k-head"><span>${esc(shortName(t.name || t.id))}</span><span>S${j + 1}${isFinal ? " 🏁" : ""}</span></div>
               <div class="k-body">${body}</div>
               <div class="k-coord">${pt.lat.toFixed(6)}, ${pt.lng.toFixed(6)}</div>
-            </div>`;
+            </div>`);
         });
 
         // tabulka trasy (s řádkem startu z tábora)
@@ -218,9 +224,14 @@
           </div>`;
       });
 
+      // stránky po 9 kartách (3×3 na A4)
+      const pages = [];
+      for (let i = 0; i < cardList.length; i += 9) {
+        pages.push(`<div class="cards-page">${cardList.slice(i, i + 9).join("")}</div>`);
+      }
       document.getElementById("obsah").innerHTML = `
-        <h2>✂️ Kartičky stanovišť (${teams.reduce((s, t) => s + t.points.length, 0) + (start ? teams.length : 0)} ks vč. startovních)</h2>
-        <div class="cards">${cards}</div>
+        <h2 class="no-print">✂️ Kartičky stanovišť (${cardList.length} ks vč. startovních) — ${pages.length} stran po 3×3</h2>
+        ${pages.join("")}
         <h2 id="sekce-trasy">📋 Trasy týmů</h2>
         ${routes}`;
     }
