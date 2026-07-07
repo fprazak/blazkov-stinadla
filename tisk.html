@@ -234,6 +234,7 @@
         ${pages.join("")}
         <h2 id="sekce-trasy">📋 Trasy týmů</h2>
         ${routes}`;
+      window.__dataLoaded = true;
     }
     run().catch(e => {
       document.getElementById("obsah").innerHTML =
@@ -246,7 +247,7 @@
     window.addEventListener("load", () => {
       setTimeout(() => {
         const o = document.getElementById("obsah");
-        if (o && /Načítám data/.test(o.textContent)) {
+        if (!window.__dataLoaded && o && /Načítám data/.test(o.textContent)) {
           o.innerHTML = `<p style="color:#c00">Data se nedaří načíst — nejspíš slabý signál.</p>
             <button onclick="location.reload()" style="padding:10px 18px;font-size:1rem;cursor:pointer;
               border:2px solid #111;background:#fff;color:#111;border-radius:8px">↻ Zkusit znovu</button>`;

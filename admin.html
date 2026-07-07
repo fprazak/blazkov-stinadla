@@ -75,6 +75,19 @@
         <div id="events" style="margin:12px 0"></div>
         <div class="stat-row" id="stats"></div>
 
+        <div class="help-card" style="margin:14px 0 0">
+          <strong>🚩 Jsem na správném místě?</strong>
+          <div class="muted" style="font-size:0.85rem">Vlož svou polohu — řeknu ti, jestli
+            stojíš v perimetru některého stanoviště, čí je (barva + číslo), a kam máš
+            případně nejblíž. Na mapě se ukáže vlajka.</div>
+          <div class="row" style="gap:8px;margin-top:10px;flex-wrap:wrap">
+            <input id="check-coords" type="text" autocomplete="off"
+              placeholder="49.456133, 16.182322" style="flex:1;min-width:200px" />
+            <button id="btn-check" class="btn ghost" style="width:auto;margin:0;flex:none">Ověřit polohu</button>
+          </div>
+          <div id="check-msg"></div>
+        </div>
+
         <h3 style="font-family:var(--font-display);color:var(--paper);margin:14px 0 0">🗺 Mapa — stanoviště a polohy týmů</h3>
         <p class="muted" style="margin:4px 0 0">
           Číslované body = stanoviště trasy (černý okraj = finální).
@@ -184,9 +197,8 @@
       try {
         const now = new Date();
         const teamsSnap = await getDocs(collection(db, "games", "stinadla", "teams"));
-        for (const d of teamsSnap.docs) {
-          await updateDoc(d.ref, { startedAt: now, updatedAt: now });
-        }
+        await Promise.all(teamsSnap.docs.map((d) =>
+          updateDoc(d.ref, { startedAt: now, updatedAt: now })));
         $("reset-msg").innerHTML = `<div class="flash ok">▶️ Časomíra spuštěna v
           ${now.toLocaleTimeString("cs-CZ", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
           pro všechny týmy. Hra běží! 🦔</div>`;
@@ -206,11 +218,10 @@
       $("reset-msg").innerHTML = '<div class="spinner"></div>';
       try {
         const teamsSnap = await getDocs(collection(db, "games", "stinadla", "teams"));
-        for (const d of teamsSnap.docs) {
-          for (const sub of ["captures", "photos"]) {
-            const subSnap = await getDocs(collection(d.ref, sub));
-            for (const sd of subSnap.docs) await deleteDoc(sd.ref);
-          }
+        await Promise.all(teamsSnap.docs.map(async (d) => {
+          const subs = await Promise.all(["captures", "photos"]
+            .map((sub) => getDocs(collection(d.ref, sub))));
+          await Promise.all(subs.flatMap((sn) => sn.docs.map((sd) => deleteDoc(sd.ref))));
           await updateDoc(d.ref, {
             currentPointIndex: 0, finalAttemptsUsed: 0,
             finished: false, finishedAt: null, startedAt: null,
@@ -218,7 +229,7 @@
             helpCount: 0, cipherSolved: {}, arrived: false, arrivedAt: null,
             updatedAt: new Date(),
           });
-        }
+        }));
         localStorage.removeItem(LS_DISMISS); dismissed.clear();
         $("reset-msg").innerHTML = '<div class="flash ok">✓ Hra resetována. Až budeš chtít začít, klikni na ▶️ Spustit časomíru.</div>';
         setTimeout(() => { $("reset-msg").innerHTML = ""; }, 6000);
@@ -264,6 +275,93 @@
             <button onclick="__dismissEvent('${e.id}')" title="odškrtnout">✓ OK</button>
           </div>`;
         }).join("");
+    }
+
+    // === 🚩 Kontrola polohy: jsem v perimetru některého stanoviště? =====
+    function parseCoords(raw) {
+      if (!raw) return null;
+      const str = raw.trim();
+      let m = str.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
+      if (m) return { lat: +m[1], lng: +m[2] };
+      m = str.match(/[?&](?:q|query|ll|destination|sll)=(-?\d+\.\d+),\s*(-?\d+\.\d+)/);
+      if (m) return { lat: +m[1], lng: +m[2] };
+      const dmsRe = /(\d+)\s*[°:\s]\s*(\d+(?:\.\d+)?)\s*['′:\s]*\s*(?:(\d+(?:\.\d+)?)\s*["″])?\s*([NSEWnsew])/g;
+      const found = [...str.matchAll(dmsRe)];
+      if (found.length >= 2) {
+        const conv = (p) => { let v = parseFloat(p[1]) + parseFloat(p[2]) / 60 + (p[3] ? parseFloat(p[3]) / 3600 : 0); const h = p[4].toUpperCase(); if (h === "S" || h === "W") v = -v; return { v, h }; };
+        const a = conv(found[0]), b = conv(found[1]);
+        const isLat = (h) => h === "N" || h === "S";
+        return { lat: isLat(a.h) ? a.v : b.v, lng: isLat(a.h) ? b.v : a.v };
+      }
+      let toks = [...str.matchAll(/(\d+(?:\.\d+)?)\s*°?\s*([NSEWnsew])(?![A-Za-z0-9])/g)]
+        .map((p) => ({ v: parseFloat(p[1]), h: p[2].toUpperCase() }));
+      if (toks.length < 2) {
+        toks = [...str.matchAll(/\b([NSEWnsew])\s*°?\s*(\d+(?:\.\d+)?)/g)]
+          .map((p) => ({ v: parseFloat(p[2]), h: p[1].toUpperCase() }));
+      }
+      if (toks.length >= 2) {
+        let lat = null, lng = null;
+        for (const t of toks) {
+          if (t.h === "N") lat = t.v; else if (t.h === "S") lat = -t.v;
+          else if (t.h === "E") lng = t.v; else if (t.h === "W") lng = -t.v;
+        }
+        if (lat != null && lng != null && Math.abs(lat) <= 90 && Math.abs(lng) <= 180) return { lat, lng };
+      }
+      m = str.match(/(-?\d+(?:\.\d+)?)\s*[,;\s]\s*(-?\d+(?:\.\d+)?)/);
+      if (m) { const lat = +m[1], lng = +m[2]; if (Math.abs(lat) <= 90 && Math.abs(lng) <= 180) return { lat, lng }; }
+      return null;
+    }
+
+    let checkMarker = null;
+    $("btn-check").addEventListener("click", checkPosition);
+    $("check-coords").addEventListener("keydown", (e) => { if (e.key === "Enter") checkPosition(); });
+    function checkPosition() {
+      const c = parseCoords($("check-coords").value);
+      if (!c) {
+        $("check-msg").innerHTML = '<div class="flash bad">Souřadnice se nepodařilo přečíst.</div>';
+        return;
+      }
+      // projdi všechna stanoviště všech týmů
+      const all = [];
+      lastTeamsData.forEach((td, i) => td.points.forEach((pt, j) => {
+        all.push({
+          team: td.name, color: teamColor(td.name, i), num: j + 1,
+          isFinal: j === td.points.length - 1,
+          radius: pt.radiusM ?? 25,
+          dist: Math.round(distM(c.lat, c.lng, pt.lat, pt.lng)),
+          bear: Math.round(toMagnetic(bearingDeg(c.lat, c.lng, pt.lat, pt.lng))),
+        });
+      }));
+      all.sort((a, b) => a.dist - b.dist);
+      const hits = all.filter(x => x.dist <= x.radius);
+
+      let html;
+      if (hits.length) {
+        html = `<div class="flash ok"><strong>✅ Jsi na stanovišti!</strong><br>` +
+          hits.map(h => `<span style="color:${h.color}">●</span>
+            <strong>${esc(h.team)}</strong> — stanoviště S${h.num}${h.isFinal ? " 🏁 finální" : ""}
+            <span class="muted">(${h.dist} m od středu, perimetr ${h.radius} m)</span>`).join("<br>") +
+          `</div>`;
+      } else {
+        const near = all.slice(0, 3);
+        html = `<div class="flash bad"><strong>❌ Nejsi v perimetru žádného stanoviště.</strong><br>Nejblíž máš:<br>` +
+          near.map(h => `<span style="color:${h.color}">●</span>
+            ${esc(h.team)} S${h.num}${h.isFinal ? " 🏁" : ""} —
+            <strong>${h.dist} m</strong>, azimut <strong>${h.bear}°</strong> ${compass(h.bear)}`).join("<br>") +
+          `</div>`;
+      }
+      $("check-msg").innerHTML = html;
+
+      // vlajka na mapě + přiblížení
+      if (map) {
+        if (checkMarker) mapLayer.removeLayer(checkMarker);
+        checkMarker = L.marker([c.lat, c.lng], {
+          icon: L.divIcon({ className: "", html: '<div style="font-size:26px;filter:drop-shadow(0 1px 3px rgba(0,0,0,.6))">🚩</div>',
+            iconSize: [26, 26], iconAnchor: [4, 26] }),
+          zIndexOffset: 1100,
+        }).addTo(mapLayer).bindTooltip("🚩 Ověřovaná poloha");
+        map.setView([c.lat, c.lng], Math.max(map.getZoom(), 17));
+      }
     }
 
     function fmt(ts) {
@@ -718,6 +816,7 @@
         renderMap(teamsData, startPt);
         renderRoutes(teamsData, startPt);
         renderEvents(teamsData);
+        window.__dataLoaded = true;
       } catch (e) {
         console.error(e);
         $("table-slot").innerHTML = `<div class="flash bad">Chyba načítání: ${esc(e.message)}</div>`;
@@ -733,7 +832,8 @@
       setTimeout(() => {
         const slot = document.getElementById("table-slot");
         const panel = document.getElementById("panel");
-        if (slot && panel && !panel.classList.contains("hidden") && slot.querySelector(".spinner")) {
+        // jen když se data od otevření stránky NIKDY nenačetla
+        if (!window.__dataLoaded && slot && panel && !panel.classList.contains("hidden")) {
           slot.innerHTML = `<div class="flash bad">Data se nedaří načíst — nejspíš slabý signál.
             <br><button onclick="location.reload()" class="btn ghost" style="width:auto;margin-top:10px">↻ Zkusit znovu</button></div>`;
         }
