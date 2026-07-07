@@ -240,5 +240,19 @@
         `<p style="color:#c00">Data se nepodařilo načíst: ${esc(e.message)}</p>`;
     });
   </script>
+
+  <script>
+    if ("serviceWorker" in navigator) navigator.serviceWorker.register("./sw.js").catch(() => {});
+    window.addEventListener("load", () => {
+      setTimeout(() => {
+        const o = document.getElementById("obsah");
+        if (o && /Načítám data/.test(o.textContent)) {
+          o.innerHTML = `<p style="color:#c00">Data se nedaří načíst — nejspíš slabý signál.</p>
+            <button onclick="location.reload()" style="padding:10px 18px;font-size:1rem;cursor:pointer;
+              border:2px solid #111;background:#fff;color:#111;border-radius:8px">↻ Zkusit znovu</button>`;
+        }
+      }, 12000);
+    });
+  </script>
 </body>
 </html>

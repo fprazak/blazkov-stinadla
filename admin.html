@@ -598,5 +598,21 @@
       }
     }
   </script>
+
+  <script>
+    // Service worker (cache SDK z CDN → rychlé načtení i na slabém signálu)
+    if ("serviceWorker" in navigator) navigator.serviceWorker.register("./sw.js").catch(() => {});
+    // Hlídač: když se data nenačtou do 12 s, nabídni opakování místo věčného spinneru
+    window.addEventListener("load", () => {
+      setTimeout(() => {
+        const slot = document.getElementById("table-slot");
+        const panel = document.getElementById("panel");
+        if (slot && panel && !panel.classList.contains("hidden") && slot.querySelector(".spinner")) {
+          slot.innerHTML = `<div class="flash bad">Data se nedaří načíst — nejspíš slabý signál.
+            <br><button onclick="location.reload()" class="btn ghost" style="width:auto;margin-top:10px">↻ Zkusit znovu</button></div>`;
+        }
+      }, 12000);
+    });
+  </script>
 </body>
 </html>
