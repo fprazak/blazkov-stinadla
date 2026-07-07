@@ -358,7 +358,7 @@ function renderTeam() {
   }
 
   const tgt = p.points[p.idx];
-  const radius = Math.round(tgt.radiusM ?? DEFAULT_RADIUS_M);
+  const prumer = Math.round((tgt.radiusM ?? DEFAULT_RADIUS_M) * 2);
   const isSecondToLast = p.points.length >= 2 && p.idx === p.points.length - 2;
   $("point-title").textContent = `Stanoviště ${p.idx + 1} z ${p.points.length}`;
 
@@ -373,12 +373,12 @@ function renderTeam() {
   if (p.isLast) {
     const left = MAX_FINAL_ATTEMPTS - p.attemptsUsed;
     hint += `<strong style="color:var(--gold-bright)">Poslední stanoviště!</strong>
-       Vlož souřadnice do ${radius} m od cíle.
+       Cíl je kruh o průměru jen <strong>${prumer} m</strong> — souřadnice musí být přesné.
        Zbývá <strong>${left}</strong> ${left === 1 ? "pokus" : "pokusy"} — vyber moudře.
        <span style="color:var(--blood)">Každý špatný pokus = +${FINAL_MISS_PENALTY_MIN} min k času!</span>`;
   } else {
     const usedHere = state.attemptsByPoint.get(p.idx) || 0;
-    hint += `Vlož souřadnice nalezeného místa (do ${radius} m od cíle).
+    hint += `Vlož souřadnice nalezeného místa (cíl je kruh o průměru ${prumer} m).
        <strong>3 pokusy zdarma, od 4. každý +${HELP_PENALTY_MIN} min.</strong>`;
     if (usedHere > 0) {
       const over = Math.max(0, usedHere - 3);

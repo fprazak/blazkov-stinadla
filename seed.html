@@ -53,8 +53,12 @@
           <input id="title" type="text" value="Stínadla" />
         </div>
         <div style="flex:1;min-width:120px">
-          <label class="field-label" for="radius">Perimetr (m)</label>
+          <label class="field-label" for="radius">Průměr kruhu (m)</label>
           <input id="radius" type="text" value="25" />
+        </div>
+        <div style="flex:1;min-width:120px">
+          <label class="field-label" for="radius-final">Průměr finále (m)</label>
+          <input id="radius-final" type="text" value="5" />
         </div>
       </div>
 
@@ -255,7 +259,7 @@
       const data = teamBlocksData();
       refreshTeamSelect(data);
       sLayer.clearLayers();
-      const radiusM = parseFloat($("radius").value) || 25;
+      const radiusDefault = (parseFloat($("radius").value) || 25) / 2;
       const bounds = [];
       data.forEach((d, ti) => {
         const color = teamColor(d.name, ti);
@@ -268,7 +272,7 @@
             iconSize: [24, 24], iconAnchor: [12, 12] });
           L.marker([pt.lat, pt.lng], { icon }).addTo(sLayer)
             .bindTooltip(`${d.name} — bod ${j + 1}${isFinal ? " (finální)" : ""}<br>${pt.lat.toFixed(6)}, ${pt.lng.toFixed(6)}`);
-          L.circle([pt.lat, pt.lng], { radius: radiusM, color, weight: 1, fillOpacity: 0.08 }).addTo(sLayer);
+          L.circle([pt.lat, pt.lng], { radius: pt.radiusM ?? radiusDefault, color, weight: 1, fillOpacity: 0.08 }).addTo(sLayer);
           bounds.push([pt.lat, pt.lng]);
         });
       });
@@ -352,7 +356,8 @@
       $("seed-msg").innerHTML = '<div class="spinner"></div>';
       try {
         const title = $("title").value.trim() || "Stínadla";
-        const radiusM = parseFloat($("radius").value) || 25;
+        const radiusM = (parseFloat($("radius").value) || 25) / 2;        // průměr → poloměr
+        const radiusFinalM = (parseFloat($("radius-final").value) || 5) / 2;
 
         // posbírej bloky týmů
         const rows = [...document.querySelectorAll(".team-setup")];
@@ -376,9 +381,10 @@
                 : `Tým „${name}", stanoviště ${j+1}: neplatné souřadnice „${line}".`;
               return;
             }
-            points.push({ ...c, radiusM });
+            points.push({ ...c, radiusM }); // finále se přepíše níže
           });
           if (bad) { errors.push(bad); return; }
+          if (points.length) points[points.length - 1].radiusM = radiusFinalM; // finále má menší kruh
 
           // kronika: řádek N (i prázdný uprostřed) patří stanovišti N
           const storyLines = tr.querySelector(".t-story").value.split("\n").map(l => l.trim());

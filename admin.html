@@ -340,7 +340,7 @@
         html = `<div class="flash ok"><strong>✅ Jsi na stanovišti!</strong><br>` +
           hits.map(h => `<span style="color:${h.color}">●</span>
             <strong>${esc(h.team)}</strong> — stanoviště S${h.num}${h.isFinal ? " 🏁 finální" : ""}
-            <span class="muted">(${h.dist} m od středu, perimetr ${h.radius} m)</span>`).join("<br>") +
+            <span class="muted">(${h.dist} m od středu, kruh ⌀ ${Math.round(h.radius * 2)} m)</span>`).join("<br>") +
           `</div>`;
       } else {
         const near = all.slice(0, 3);
@@ -509,7 +509,7 @@
         const listHtml = `
           <div style="font-size:13px;min-width:230px">
             <strong>${shared ? `Sdílené stanoviště — ${g.items.length} týmy` : "Stanoviště"}</strong>
-            <div style="color:#666;font-size:11px;margin-bottom:6px">${g.lat.toFixed(6)}, ${g.lng.toFixed(6)} · ±${g.radiusM} m</div>
+            <div style="color:#666;font-size:11px;margin-bottom:6px">${g.lat.toFixed(6)}, ${g.lng.toFixed(6)} · ⌀ ${Math.round(g.radiusM * 2)} m</div>
             ${g.items.map(it => `
               <div style="padding:4px 0;border-top:1px solid #eee">
                 <div style="display:flex;align-items:center;gap:6px">
