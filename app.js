@@ -130,6 +130,7 @@ let state = {
   team: null,
   lastCapture: null,          // poslední nahraná poloha
   photosByPoint: new Set(),   // na kterých stanovištích už je fotka
+  attemptsByPoint: new Map(), // počet pokusů na stanovišti (od 4. je +5 min)
 };
 
 // --- DOM pomocné ------------------------------------------------------
@@ -374,7 +375,14 @@ function renderTeam() {
        Vlož souřadnice do ${radius} m od cíle.
        Zbývá <strong>${left}</strong> ${left === 1 ? "pokus" : "pokusy"} — vyber moudře.`;
   } else {
-    hint += `Vlož souřadnice nalezeného místa (do ${radius} m od cíle). Pokusy neomezené.`;
+    const usedHere = state.attemptsByPoint.get(p.idx) || 0;
+    hint += `Vlož souřadnice nalezeného místa (do ${radius} m od cíle).
+       <strong>3 pokusy zdarma, od 4. každý +${HELP_PENALTY_MIN} min.</strong>`;
+    if (usedHere > 0) {
+      const over = Math.max(0, usedHere - 3);
+      hint += ` <span class="${over ? "" : "muted"}" ${over ? 'style="color:var(--blood)"' : ""}>
+        Pokusů tady: ${usedHere}${over ? ` (+${over * HELP_PENALTY_MIN} min)` : ""}.</span>`;
+    }
   }
   if (!hasPhotoHere) {
     hint += `<div style="color:var(--gold-bright);margin-top:6px">
@@ -525,11 +533,16 @@ async function onCapture() {
     const fresh = await getDoc(teamRef);
     state.team = { id: fresh.id, ...fresh.data() };
 
-    renderTeam();
-    await loadTrail();
+    await loadTrail();      // nejdřív čerstvá stopa (počty pokusů)…
+    renderTeam();           // …pak překreslení s aktuálními počty
     clearFlash("help-msg"); // nová poloha → stará nápověda už neplatí
 
     const distR = Math.round(dist);
+    // pořadí tohoto pokusu na stanovišti (loadTrail už proběhl → obsahuje i tento)
+    const attemptNo = state.attemptsByPoint.get(p.idx) || 1;
+    const overNote = (!p.isLast && attemptNo > 3)
+      ? `<div style="color:var(--blood);margin-top:6px">⏱ ${attemptNo}. pokus na tomto
+         stanovišti — <strong>+${HELP_PENALTY_MIN} min</strong> k času týmu.</div>` : "";
     if (within) {
       $("coords-input").value = "";
       const story = teamStory(state.team)[p.idx];
@@ -544,7 +557,7 @@ async function onCapture() {
       } else {
         flash("capture-msg", "ok",
           `✓ <strong>Stanoviště ${p.idx + 1} objeveno!</strong> (${distR} m od cíle)<br>
-           Pokračuj na stanoviště ${p.idx + 2} z ${p.points.length}.${storyHtml}`);
+           Pokračuj na stanoviště ${p.idx + 2} z ${p.points.length}.${overNote}${storyHtml}`);
         confetti();
       }
     } else {
@@ -573,7 +586,7 @@ async function onCapture() {
       } else {
         flash("capture-msg", "bad",
           `<span class="haha">${haha}</span>
-           ${smer}${teplota}`);
+           ${smer}${teplota}${overNote}`);
       }
     }
   } catch (e) {
@@ -599,6 +612,13 @@ async function loadTrail() {
       return;
     }
     state.lastCapture = snap.docs[0].data(); // desc → první = nejnovější
+    // počet pokusů (bez SOS) na každém stanovišti — od 4. je penalizace
+    const counts = new Map();
+    snap.docs.forEach((d) => {
+      const x = d.data();
+      if (x.source !== "sos") counts.set(x.pointIndex ?? 0, (counts.get(x.pointIndex ?? 0) || 0) + 1);
+    });
+    state.attemptsByPoint = counts;
     let html = "";
     snap.docs.forEach((d) => {
       const x = d.data();

@@ -482,17 +482,32 @@
             }
           } catch (e) { /* fotky nejsou kritické */ }
 
+          // pokusy nad 3 na stanoviště (bez SOS) → +5 min za každý
+          const attemptsByPt = new Map();
+          caps.forEach(c => {
+            if (c.source !== "sos") attemptsByPt.set(c.pointIndex ?? 0, (attemptsByPt.get(c.pointIndex ?? 0) || 0) + 1);
+          });
+          let overPenaltyMin = 0, overHtml = "";
+          for (const [j, n] of [...attemptsByPt.entries()].sort((a, b) => a[0] - b[0])) {
+            const over = Math.max(0, n - 3);
+            if (over > 0) {
+              overPenaltyMin += over * HELP_PENALTY_MIN;
+              overHtml += `<br><span style="color:#e89490;font-size:0.78rem">S${j + 1}: ${n}× pokus (+${over * HELP_PENALTY_MIN} min)</span>`;
+            }
+          }
+
           // časomíra + skóre (jen tady v adminu)
           const ciphersSolved = Object.values(t.cipherSolved || {}).filter(Boolean).length;
           const startMs = tsMs(t.startedAt);
           const endMs = tsMs(t.finishedAt || t.arrivedAt);
           let rawMin = null;
           if (startMs) rawMin = ((endMs ?? Date.now()) - startMs) / 60000;
-          const penalty = (t.helpCount || 0) * HELP_PENALTY_MIN;
+          const penalty = (t.helpCount || 0) * HELP_PENALTY_MIN + overPenaltyMin;
           const bonus = photoStations * PHOTO_BONUS_MIN + ciphersSolved * CIPHER_BONUS_MIN;
           const adjMin = rawMin != null ? Math.max(0, rawMin + penalty - bonus) : null;
           const scoreParts = [];
-          if (t.helpCount) scoreParts.push(`<span style="color:#e89490">+${penalty} SOS</span>`);
+          if (t.helpCount) scoreParts.push(`<span style="color:#e89490">+${(t.helpCount || 0) * HELP_PENALTY_MIN} SOS</span>`);
+          if (overPenaltyMin) scoreParts.push(`<span style="color:#e89490">+${overPenaltyMin} pokusy</span>`);
           if (photoStations) scoreParts.push(`<span class="a-ok">−${photoStations * PHOTO_BONUS_MIN} 📸</span>`);
           if (ciphersSolved) scoreParts.push(`<span class="a-ok">−${ciphersSolved * CIPHER_BONUS_MIN} 🧩</span>`);
           const timeHtml = rawMin == null
@@ -512,7 +527,8 @@
           // postup
           const progress = p.points.length
             ? `<strong>${Math.min(p.idx, p.points.length)}/${p.points.length}</strong>` +
-              (p.isLast && !p.finished ? `<br><span class="muted">finále: ${p.attemptsUsed}/${MAX_FINAL_ATTEMPTS} pokusů</span>` : "")
+              (p.isLast && !p.finished ? `<br><span class="muted">finále: ${p.attemptsUsed}/${MAX_FINAL_ATTEMPTS} pokusů</span>` : "") +
+              overHtml
             : `<span class="pill full">bez trasy</span>`;
 
           // navigace z posledního bodu k AKTUÁLNÍMU stanovišti
@@ -547,7 +563,7 @@
             ⏱ Bodování (jen pro tebe): čas od 1. záznamu do cíle ·
             🆘 nápověda <strong>+${HELP_PENALTY_MIN} min</strong> ·
             📸 fotka stanoviště <strong>−${PHOTO_BONUS_MIN} min</strong> ·
-            🧩 šifra <strong>−${CIPHER_BONUS_MIN} min</strong></p>
+            🧩 šifra <strong>−${CIPHER_BONUS_MIN} min</strong> · 🔁 4.+ pokus na stanovišti <strong>+${HELP_PENALTY_MIN} min</strong></p>
           <div class="table-scroll">
           <table class="admin">
             <thead><tr>
