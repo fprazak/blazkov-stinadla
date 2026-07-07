@@ -150,8 +150,8 @@
           const next = pts[j + 1];
           let body;
           if (isFinal || !next) {
-            body = `<div class="k-cil" style="font-size:5.6mm">Kdo to sedí na lavičce?<br>
-              <span style="font-size:4.2mm;font-weight:600">A pak vrať se do tábora</span></div>`;
+            body = `<div class="k-cil" style="font-size:5.6mm">Vrať se do tábora<br>
+              <span style="font-size:4.2mm;font-weight:600">Kdo to sedí na lavičce?</span></div>`;
           } else {
             const b = Math.round(toMagnetic(bearingDeg(pt.lat, pt.lng, next.lat, next.lng)));
             const d = Math.round(distM(pt.lat, pt.lng, next.lat, next.lng));
