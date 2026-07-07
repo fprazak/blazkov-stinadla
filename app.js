@@ -20,7 +20,8 @@ const MAX_FINAL_ATTEMPTS = 3;   // pokusy na POSLEDNÍM stanovišti
 const DEFAULT_RADIUS_M = 25;
 const HELP_PENALTY_MIN = 5;     // SOS nápověda: +5 min k času
 const PHOTO_BONUS_MIN = 2;      // fotka ze stanoviště: −2 min
-const CIPHER_BONUS_MIN = 5;     // vyřešená šifra: −5 min
+const CIPHER_BONUS_MIN = 5;     // vyřešená šifra
+const FINAL_MISS_PENALTY_MIN = 15; // špatný pokus na FINÁLNÍM stanovišti: +15 min
 
 // Parsování ručně vložených souřadnic.
 // Přijme desetinné "lat, lng", DMS "49°11.752'N 16°36.127'E"
@@ -373,7 +374,8 @@ function renderTeam() {
     const left = MAX_FINAL_ATTEMPTS - p.attemptsUsed;
     hint += `<strong style="color:var(--gold-bright)">Poslední stanoviště!</strong>
        Vlož souřadnice do ${radius} m od cíle.
-       Zbývá <strong>${left}</strong> ${left === 1 ? "pokus" : "pokusy"} — vyber moudře.`;
+       Zbývá <strong>${left}</strong> ${left === 1 ? "pokus" : "pokusy"} — vyber moudře.
+       <span style="color:var(--blood)">Každý špatný pokus = +${FINAL_MISS_PENALTY_MIN} min k času!</span>`;
   } else {
     const usedHere = state.attemptsByPoint.get(p.idx) || 0;
     hint += `Vlož souřadnice nalezeného místa (do ${radius} m od cíle).
@@ -580,9 +582,10 @@ async function onCapture() {
           left > 0
             ? `<span class="haha">${haha}</span>
                ${smer}${teplota}
+               <div style="color:var(--blood);margin-top:6px">⏱ Špatný pokus na finále — <strong>+${FINAL_MISS_PENALTY_MIN} min</strong> k času týmu.</div>
                <div style="margin-top:6px">Na poslední stanoviště ${left === 1 ? "zbývá poslední pokus" : `zbývají ${left} pokusy`}!</div>`
             : `<span class="haha">A to byl poslední pokus.</span>
-               Tato poloha byla <strong>${distR} m</strong> od cíle. Vrať se do tábora.`);
+               Tato poloha byla <strong>${distR} m</strong> od cíle (+${FINAL_MISS_PENALTY_MIN} min). Vrať se do tábora.`);
       } else {
         flash("capture-msg", "bad",
           `<span class="haha">${haha}</span>

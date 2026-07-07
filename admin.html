@@ -93,6 +93,7 @@
     const HELP_PENALTY_MIN = 5;   // SOS nápověda
     const PHOTO_BONUS_MIN = 2;    // fotka na stanovišti (1× za stanoviště)
     const CIPHER_BONUS_MIN = 5;   // vyřešená šifra
+    const FINAL_MISS_PENALTY_MIN = 15; // špatný pokus na finálním stanovišti
     const $ = (id) => document.getElementById(id);
 
     // barvy týmů na mapě i v legendě
@@ -489,11 +490,22 @@
           });
           let overPenaltyMin = 0, overHtml = "";
           for (const [j, n] of [...attemptsByPt.entries()].sort((a, b) => a[0] - b[0])) {
+            if (p.points.length && j === p.points.length - 1) continue; // finále má vlastní pravidlo +15
             const over = Math.max(0, n - 3);
             if (over > 0) {
               overPenaltyMin += over * HELP_PENALTY_MIN;
               overHtml += `<br><span style="color:#e89490;font-size:0.78rem">S${j + 1}: ${n}× pokus (+${over * HELP_PENALTY_MIN} min)</span>`;
             }
+          }
+
+          // špatné pokusy na FINÁLNÍM stanovišti → +15 min za každý
+          const lastIdx = p.points.length - 1;
+          const finalMisses = p.points.length
+            ? caps.filter(c => c.source !== "sos" && (c.pointIndex ?? 0) === lastIdx && !c.within).length
+            : 0;
+          const finalPenaltyMin = finalMisses * FINAL_MISS_PENALTY_MIN;
+          if (finalMisses > 0) {
+            overHtml += `<br><span style="color:#e89490;font-size:0.78rem">finále: ${finalMisses}× vedle (+${finalPenaltyMin} min)</span>`;
           }
 
           // časomíra + skóre (jen tady v adminu)
@@ -502,12 +514,13 @@
           const endMs = tsMs(t.finishedAt || t.arrivedAt);
           let rawMin = null;
           if (startMs) rawMin = ((endMs ?? Date.now()) - startMs) / 60000;
-          const penalty = (t.helpCount || 0) * HELP_PENALTY_MIN + overPenaltyMin;
+          const penalty = (t.helpCount || 0) * HELP_PENALTY_MIN + overPenaltyMin + finalPenaltyMin;
           const bonus = photoStations * PHOTO_BONUS_MIN + ciphersSolved * CIPHER_BONUS_MIN;
           const adjMin = rawMin != null ? Math.max(0, rawMin + penalty - bonus) : null;
           const scoreParts = [];
           if (t.helpCount) scoreParts.push(`<span style="color:#e89490">+${(t.helpCount || 0) * HELP_PENALTY_MIN} SOS</span>`);
           if (overPenaltyMin) scoreParts.push(`<span style="color:#e89490">+${overPenaltyMin} pokusy</span>`);
+          if (finalPenaltyMin) scoreParts.push(`<span style="color:#e89490">+${finalPenaltyMin} finále</span>`);
           if (photoStations) scoreParts.push(`<span class="a-ok">−${photoStations * PHOTO_BONUS_MIN} 📸</span>`);
           if (ciphersSolved) scoreParts.push(`<span class="a-ok">−${ciphersSolved * CIPHER_BONUS_MIN} 🧩</span>`);
           const timeHtml = rawMin == null
@@ -563,7 +576,7 @@
             ⏱ Bodování (jen pro tebe): čas od 1. záznamu do cíle ·
             🆘 nápověda <strong>+${HELP_PENALTY_MIN} min</strong> ·
             📸 fotka stanoviště <strong>−${PHOTO_BONUS_MIN} min</strong> ·
-            🧩 šifra <strong>−${CIPHER_BONUS_MIN} min</strong> · 🔁 4.+ pokus na stanovišti <strong>+${HELP_PENALTY_MIN} min</strong></p>
+            🧩 šifra <strong>−${CIPHER_BONUS_MIN} min</strong> · 🔁 4.+ pokus na stanovišti <strong>+${HELP_PENALTY_MIN} min</strong> · 🎯 vedle na finále <strong>+${FINAL_MISS_PENALTY_MIN} min</strong></p>
           <div class="table-scroll">
           <table class="admin">
             <thead><tr>
