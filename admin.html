@@ -98,6 +98,24 @@
     // barvy týmů na mapě i v legendě
     const PALETTE = ["#e6194b","#3cb44b","#4363d8","#f58231","#911eb4",
                      "#42d4f4","#f032e6","#bfef45","#fabed4","#469990"];
+    // barva týmu podle NÁZVU (slovo barvy v názvu = skutečná barva);
+    // fallback = paleta podle pořadí
+    const COLOR_WORDS = [
+      [/černe|černa|černá|cerna/i, "#333333"],
+      [/červen|cerven/i, "#d92b2b"],
+      [/fialov/i, "#8e24aa"],
+      [/modr/i, "#1e63d0"],
+      [/zelen/i, "#2e9e44"],
+      [/žlut|zlut/i, "#c9a300"],
+      [/oranž|oranz/i, "#f07800"],
+      [/růžov|ruzov/i, "#e91e8c"],
+      [/hněd|hned/i, "#8d6e63"],
+      [/tyrkys|azur/i, "#00acc1"],
+    ];
+    function teamColor(name, i) {
+      for (const [re, c] of COLOR_WORDS) if (re.test(name || "")) return c;
+      return PALETTE[i % PALETTE.length];
+    }
 
     if (!configIsFilled()) {
       $("config-warn-slot").innerHTML = `<div class="config-warn">
@@ -208,7 +226,7 @@
       // se kreslí jako JEDEN marker se seznamem týmů po kliknutí
       const pointGroups = new Map();
       teamsData.forEach((td, i) => {
-        const color = PALETTE[i % PALETTE.length];
+        const color = teamColor(td.name, i);
         td.points.forEach((pt, j) => {
           const key = pt.lat.toFixed(6) + "," + pt.lng.toFixed(6);
           if (!pointGroups.has(key)) {
@@ -289,7 +307,7 @@
       }
 
       teamsData.forEach((td, i) => {
-        const color = PALETTE[i % PALETTE.length];
+        const color = teamColor(td.name, i);
 
         // nahrané polohy týmu (stopa + poslední poloha zvýrazněná)
         if (td.captures.length) {
@@ -315,7 +333,7 @@
 
       if (bounds.length) map.fitBounds(bounds, { padding: [36, 36] });
       $("legend").innerHTML = teamsData.map((td, i) => {
-        const c = PALETTE[i % PALETTE.length];
+        const c = teamColor(td.name, i);
         return `<span class="pill" style="background:${c}26;color:${c};border:1px solid ${c}66">● ${esc(td.name)}</span>`;
       }).join("");
     }
@@ -325,7 +343,7 @@
       const el = $("routes");
       if (!el) return;
       el.innerHTML = teamsData.map((td, i) => {
-        const color = PALETTE[i % PALETTE.length];
+        const color = teamColor(td.name, i);
         const rows = td.points.map((pt, j) => {
           const isFinal = j === td.points.length - 1;
           const next = td.points[j + 1];
