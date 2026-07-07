@@ -556,20 +556,24 @@ async function onCapture() {
         else if (diff < -5) teplota = `<div style="color:#9fc6e8;margin-top:6px">🧊 <strong>Samá voda…</strong> O ${-diff} m dál než minule!</div>`;
         else teplota = `<div class="muted" style="margin-top:6px">😐 Zhruba stejně daleko jako minule.</div>`;
       }
+      // přesný směr z místa, které tým právě zadal, k cíli (na buzolu)
+      const magB = Math.round(toMagnetic(bearingDeg(coords.lat, coords.lng, tgt.lat, tgt.lng)));
+      const smer = `Od zadaného místa je cíl <strong>${distR} m</strong> daleko,
+        azimut <strong>${magB}°</strong> ${compassDir(magB)} <span class="muted">(na buzolu)</span>.`;
       const haha = HAHA[(t.captureCount ?? 0) % HAHA.length];
       if (p.isLast) {
         const left = MAX_FINAL_ATTEMPTS - (p.attemptsUsed + 1);
         flash("capture-msg", "bad",
           left > 0
             ? `<span class="haha">${haha}</span>
-               Tato poloha je <strong>${distR} m</strong> od cíle.${teplota}
+               ${smer}${teplota}
                <div style="margin-top:6px">Na poslední stanoviště ${left === 1 ? "zbývá poslední pokus" : `zbývají ${left} pokusy`}!</div>`
             : `<span class="haha">A to byl poslední pokus.</span>
                Tato poloha byla <strong>${distR} m</strong> od cíle. Vrať se do tábora.`);
       } else {
         flash("capture-msg", "bad",
           `<span class="haha">${haha}</span>
-           Tato poloha je <strong>${distR} m</strong> od cíle.${teplota}`);
+           ${smer}${teplota}`);
       }
     }
   } catch (e) {
