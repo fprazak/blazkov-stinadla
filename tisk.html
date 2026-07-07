@@ -88,7 +88,7 @@
   <div id="obsah"><p class="muted">Načítám data…</p></div>
 
   <script type="module">
-    import { db, collection, getDocs } from "./db.js";
+    import { db, collection, getDocs, doc, getDoc } from "./db.js";
 
     const PALETTE = ["#e6194b","#3cb44b","#4363d8","#f58231","#911eb4",
                      "#42d4f4","#f032e6","#bfef45","#fabed4","#469990"];
@@ -135,6 +135,9 @@
     };
 
     async function run() {
+      const gameSnap = await getDoc(doc(db, "games", "stinadla"));
+      const start = gameSnap.exists() && gameSnap.data().start &&
+        typeof gameSnap.data().start.lat === "number" ? gameSnap.data().start : null;
       const snap = await getDocs(collection(db, "games", "stinadla", "teams"));
       const teams = snap.docs.map(d => ({ id: d.id, ...d.data() }))
         .filter(t => Array.isArray(t.points) && t.points.length)
@@ -167,8 +170,16 @@
             </div>`;
         });
 
-        // tabulka trasy
-        const rows = pts.map((pt, j) => {
+        // tabulka trasy (s řádkem startu z tábora)
+        let startRow = "";
+        if (start) {
+          const b = Math.round(toMagnetic(bearingDeg(start.lat, start.lng, pts[0].lat, pts[0].lng)));
+          const d = Math.round(distM(start.lat, start.lng, pts[0].lat, pts[0].lng));
+          startRow = `<tr><td><strong>⛺</strong></td>
+            <td class="mono">${start.lat.toFixed(6)}, ${start.lng.toFixed(6)} (tábor)</td>
+            <td>${d} m</td><td><strong>${b}° ${compass(b)}</strong></td></tr>`;
+        }
+        const rows = startRow + pts.map((pt, j) => {
           const isFinal = j === pts.length - 1;
           const next = pts[j + 1];
           let nd = "—", na = "—";

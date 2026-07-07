@@ -210,7 +210,7 @@
 
     // --- mapa ---------------------------------------------------------
     let map = null, mapLayer = null;
-    function renderMap(teamsData) {
+    function renderMap(teamsData, start) {
       if (!window.L) { $("map").style.display = "none"; return; }
       if (!map) {
         map = L.map("map");
@@ -221,6 +221,30 @@
       }
       mapLayer.clearLayers();
       const bounds = [];
+
+      // ⛺ TÁBOR — startovní bod všech týmů
+      if (start) {
+        const startIcon = L.divIcon({ className: "",
+          html: `<div style="background:#111;color:#f4c35a;width:34px;height:34px;border-radius:50%;
+            display:flex;align-items:center;justify-content:center;font-size:18px;
+            border:3px solid #f4c35a;box-shadow:0 1px 6px rgba(0,0,0,.7)">⛺</div>`,
+          iconSize: [34, 34], iconAnchor: [17, 17] });
+        const startList = teamsData.filter(td => td.points.length).map((td, i) => {
+          const p1 = td.points[0];
+          const b = Math.round(toMagnetic(bearingDeg(start.lat, start.lng, p1.lat, p1.lng)));
+          const d = Math.round(distM(start.lat, start.lng, p1.lat, p1.lng));
+          return `<div style="display:flex;align-items:center;gap:6px;padding:3px 0">
+            <span style="width:11px;height:11px;border-radius:50%;background:${teamColor(td.name, i)};flex:none"></span>
+            <span>${esc(td.name)} → S1: <strong>${d} m</strong>, <strong>${b}°</strong> ${compass(b)}</span></div>`;
+        }).join("");
+        L.marker([start.lat, start.lng], { icon: startIcon, zIndexOffset: 1000 }).addTo(mapLayer)
+          .bindTooltip("⛺ TÁBOR — start všech týmů")
+          .bindPopup(`<div style="font-size:13px;min-width:230px">
+            <strong>⛺ Tábor — start</strong>
+            <div style="color:#666;font-size:11px;margin-bottom:6px">${start.lat.toFixed(6)}, ${start.lng.toFixed(6)}</div>
+            ${startList}</div>`);
+        bounds.push([start.lat, start.lng]);
+      }
 
       // stanoviště seskupená podle souřadnic — sdílené body více týmů
       // se kreslí jako JEDEN marker se seznamem týmů po kliknutí
@@ -339,12 +363,24 @@
     }
 
     // --- 📋 seznam tras: všechny body + metry a azimuty k dalšímu bodu ---
-    function renderRoutes(teamsData) {
+    function renderRoutes(teamsData, start) {
       const el = $("routes");
       if (!el) return;
       el.innerHTML = teamsData.map((td, i) => {
         const color = teamColor(td.name, i);
-        const rows = td.points.map((pt, j) => {
+        let startRow = "";
+        if (start && td.points.length) {
+          const p1 = td.points[0];
+          const b = Math.round(toMagnetic(bearingDeg(start.lat, start.lng, p1.lat, p1.lng)));
+          const d = Math.round(distM(start.lat, start.lng, p1.lat, p1.lng));
+          startRow = `<tr>
+            <td><strong>⛺</strong></td>
+            <td class="attempt-log">${start.lat.toFixed(6)}, ${start.lng.toFixed(6)} <span class="muted">(tábor)</span></td>
+            <td>${d} m</td>
+            <td><strong style="color:var(--gold-bright)">${b}° ${compass(b)}</strong></td>
+          </tr>`;
+        }
+        const rows = startRow + td.points.map((pt, j) => {
           const isFinal = j === td.points.length - 1;
           const next = td.points[j + 1];
           let navDist = "—", navAz = "—";
@@ -524,8 +560,9 @@
           </table>
           </div>`;
 
-        renderMap(teamsData);
-        renderRoutes(teamsData);
+        const startPt = (g.start && typeof g.start.lat === "number") ? g.start : null;
+        renderMap(teamsData, startPt);
+        renderRoutes(teamsData, startPt);
       } catch (e) {
         console.error(e);
         $("table-slot").innerHTML = `<div class="flash bad">Chyba načítání: ${esc(e.message)}</div>`;
