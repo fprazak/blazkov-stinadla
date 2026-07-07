@@ -64,8 +64,9 @@
       <div class="card">
         <div class="row" style="justify-content:space-between;align-items:center">
           <h2 style="margin:0">Týmy ve hře „<span id="game-title">…</span>"</h2>
-          <div class="row" style="gap:8px">
-            <button id="btn-reset" class="btn ghost" style="width:auto;margin:0;color:var(--blood);border-color:rgba(178,58,53,0.5)">🚀 Start hry (reset)</button>
+          <div class="row" style="gap:8px;flex-wrap:wrap">
+            <button id="btn-start" class="btn" style="width:auto;margin:0">▶️ Spustit časomíru</button>
+            <button id="btn-reset" class="btn ghost" style="width:auto;margin:0;color:var(--blood);border-color:rgba(178,58,53,0.5)">♻️ Reset hry</button>
             <button id="btn-refresh" class="btn ghost" style="width:auto;margin:0">↻ Obnovit</button>
           </div>
         </div>
@@ -175,10 +176,32 @@
     // už jednou přihlášen v tomto prohlížeči → rovnou dovnitř
     if (localStorage.getItem(LS_ADMIN) === "1") openPanel();
 
-    // === 🚀 Start hry: smaže záznamy, hru a týmy (body/hesla) nechá ===
+    // === ▶️ Spustit časomíru: nastaví start VŠEM týmům teď =============
+    $("btn-start").addEventListener("click", startTimer);
+    async function startTimer() {
+      if (!confirm("Spustit časomíru VŠEM týmům od TEĎ?")) return;
+      $("reset-msg").innerHTML = '<div class="spinner"></div>';
+      try {
+        const now = new Date();
+        const teamsSnap = await getDocs(collection(db, "games", "stinadla", "teams"));
+        for (const d of teamsSnap.docs) {
+          await updateDoc(d.ref, { startedAt: now, updatedAt: now });
+        }
+        $("reset-msg").innerHTML = `<div class="flash ok">▶️ Časomíra spuštěna v
+          ${now.toLocaleTimeString("cs-CZ", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+          pro všechny týmy. Hra běží! 🦔</div>`;
+        setTimeout(() => { $("reset-msg").innerHTML = ""; }, 8000);
+        load();
+      } catch (e) {
+        console.error(e);
+        $("reset-msg").innerHTML = `<div class="flash bad">Spuštění selhalo: ${esc(e.message)}</div>`;
+      }
+    }
+
+    // === ♻️ Reset hry: smaže záznamy, hru a týmy (body/hesla) nechá ===
     $("btn-reset").addEventListener("click", resetGame);
     async function resetGame() {
-      if (!confirm("START HRY: smazat VŠECHNY záznamy týmů (pokusy, fotky, časy)?\nBody, hesla, kronika i šifry zůstanou.")) return;
+      if (!confirm("RESET HRY: smazat VŠECHNY záznamy týmů (pokusy, fotky, časy)?\nBody a hesla zůstanou.")) return;
       if (!confirm("Opravdu? Tohle nejde vrátit.")) return;
       $("reset-msg").innerHTML = '<div class="spinner"></div>';
       try {
@@ -197,7 +220,7 @@
           });
         }
         localStorage.removeItem(LS_DISMISS); dismissed.clear();
-        $("reset-msg").innerHTML = '<div class="flash ok">✓ Hra resetována — týmy se můžou přihlásit a začít. Hodně štěstí! 🦔</div>';
+        $("reset-msg").innerHTML = '<div class="flash ok">✓ Hra resetována. Až budeš chtít začít, klikni na ▶️ Spustit časomíru.</div>';
         setTimeout(() => { $("reset-msg").innerHTML = ""; }, 6000);
         load();
       } catch (e) {
@@ -618,14 +641,13 @@
           let rawMin = null;
           if (startMs) rawMin = ((endMs ?? Date.now()) - startMs) / 60000;
           const penalty = (t.helpCount || 0) * HELP_PENALTY_MIN + overPenaltyMin + finalPenaltyMin;
-          const bonus = photoStations * PHOTO_BONUS_MIN + ciphersSolved * CIPHER_BONUS_MIN;
+          const bonus = photoStations * PHOTO_BONUS_MIN;
           const adjMin = rawMin != null ? Math.max(0, rawMin + penalty - bonus) : null;
           const scoreParts = [];
           if (t.helpCount) scoreParts.push(`<span style="color:#e89490">+${(t.helpCount || 0) * HELP_PENALTY_MIN} SOS</span>`);
           if (overPenaltyMin) scoreParts.push(`<span style="color:#e89490">+${overPenaltyMin} pokusy</span>`);
           if (finalPenaltyMin) scoreParts.push(`<span style="color:#e89490">+${finalPenaltyMin} finále</span>`);
           if (photoStations) scoreParts.push(`<span class="a-ok">−${photoStations * PHOTO_BONUS_MIN} 📸</span>`);
-          if (ciphersSolved) scoreParts.push(`<span class="a-ok">−${ciphersSolved * CIPHER_BONUS_MIN} 🧩</span>`);
           const timeHtml = rawMin == null
             ? '<span class="muted">nestartoval</span>'
             : `<strong>${fmtMin(adjMin)}</strong>${p.finished ? "" : ' <span class="muted">(běží)</span>'}<br>
@@ -676,10 +698,10 @@
 
         $("table-slot").innerHTML = `
           <p class="muted" style="margin:14px 0 4px;font-size:0.8rem">
-            ⏱ Bodování (jen pro tebe): čas od 1. záznamu do cíle ·
+            ⏱ Bodování (jen pro tebe): čas od spuštění časomíry (▶️) do cíle ·
             🆘 nápověda <strong>+${HELP_PENALTY_MIN} min</strong> ·
             📸 fotka stanoviště <strong>−${PHOTO_BONUS_MIN} min</strong> ·
-            🧩 šifra <strong>−${CIPHER_BONUS_MIN} min</strong> · 🔁 4.+ pokus na stanovišti <strong>+${HELP_PENALTY_MIN} min</strong> · 🎯 vedle na finále <strong>+${FINAL_MISS_PENALTY_MIN} min</strong></p>
+            🔁 4.+ pokus na stanovišti <strong>+${HELP_PENALTY_MIN} min</strong> · 🎯 vedle na finále <strong>+${FINAL_MISS_PENALTY_MIN} min</strong></p>
           <div class="table-scroll">
           <table class="admin">
             <thead><tr>
