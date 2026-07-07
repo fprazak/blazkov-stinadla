@@ -150,14 +150,14 @@
           const next = pts[j + 1];
           let body;
           if (isFinal || !next) {
-            body = `<div class="k-cil">🏁 CÍL<br><span style="font-size:4.4mm;font-weight:600">Vrať se do tábora!</span></div>`;
+            body = `<div class="k-cil" style="font-size:5.6mm">Kdo to sedí na lavičce?<br>
+              <span style="font-size:4.2mm;font-weight:600">A pak vrať se do tábora</span></div>`;
           } else {
             const b = Math.round(toMagnetic(bearingDeg(pt.lat, pt.lng, next.lat, next.lng)));
             const d = Math.round(distM(pt.lat, pt.lng, next.lat, next.lng));
             body = `
               <div class="k-dist">Další bod: <strong>${d} m</strong></div>
-              <div class="k-az">${b}° <small>${compass(b)}</small></div>
-              <div class="muted" style="font-size:3.2mm">azimut na buzolu (magnetický)</div>`;
+              <div class="k-az">${b}° <small>${compass(b)}</small></div>`;
           }
           cards += `
             <div class="karta" style="--c:${color}">
