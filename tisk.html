@@ -148,6 +148,21 @@
         const color = teamColor(t.name || t.id, i);
         const pts = t.points;
 
+        // ⛺ startovní kartička týmu (tábor → S1)
+        if (start && pts.length) {
+          const b = Math.round(toMagnetic(bearingDeg(start.lat, start.lng, pts[0].lat, pts[0].lng)));
+          const d = Math.round(distM(start.lat, start.lng, pts[0].lat, pts[0].lng));
+          cards += `
+            <div class="karta" style="--c:${color}">
+              <div class="k-head"><span>${esc(shortName(t.name || t.id))}</span><span>⛺ START</span></div>
+              <div class="k-body">
+                <div class="k-dist">První bod: <strong>${d} m</strong></div>
+                <div class="k-az">${b}° <small>${compass(b)}</small></div>
+              </div>
+              <div class="k-coord">${start.lat.toFixed(6)}, ${start.lng.toFixed(6)}</div>
+            </div>`;
+        }
+
         pts.forEach((pt, j) => {
           const isFinal = j === pts.length - 1;
           const next = pts[j + 1];
@@ -204,7 +219,7 @@
       });
 
       document.getElementById("obsah").innerHTML = `
-        <h2>✂️ Kartičky stanovišť (${teams.reduce((s, t) => s + t.points.length, 0)} ks)</h2>
+        <h2>✂️ Kartičky stanovišť (${teams.reduce((s, t) => s + t.points.length, 0) + (start ? teams.length : 0)} ks vč. startovních)</h2>
         <div class="cards">${cards}</div>
         <h2 id="sekce-trasy">📋 Trasy týmů</h2>
         ${routes}`;
