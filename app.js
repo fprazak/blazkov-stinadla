@@ -192,11 +192,12 @@ async function init() {
     $("config-warn-slot").innerHTML = `<div class="config-warn">
       ⚠️ <strong>Firebase není nastaven.</strong> Doplň <code>firebase.js</code>.</div>`;
   }
-  await ensureAuth(); // neblokuje (otevřená pravidla fungují i bez auth)
-
+  // NIC neblokuje UI: formulář funguje okamžitě
   wireEvents();
-  await loadGame();
-  await tryRestore();
+  state.gameId = "stinadla";        // pevné id — není třeba čekat na síť
+  ensureAuth();                     // volitelné, na pozadí (otevřená pravidla)
+  loadGame().catch(console.warn);   // jen titulek hry, na pozadí
+  tryRestore();                     // obnova přihlášení hned
 }
 
 function wireEvents() {

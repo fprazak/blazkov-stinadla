@@ -4,6 +4,9 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Stínadla — Přehled organizátora</title>
+  <link rel="preconnect" href="https://www.gstatic.com" crossorigin />
+  <link rel="preconnect" href="https://firestore.googleapis.com" />
+  <link rel="preconnect" href="https://firebasestorage.googleapis.com" />
   <link rel="stylesheet" href="styles.css" />
   <!-- Leaflet (mapa) -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
@@ -59,6 +62,13 @@
         </p>
         <div id="map"></div>
         <div class="map-legend" id="legend"></div>
+
+        <details style="margin:6px 0 14px">
+          <summary style="cursor:pointer;color:var(--gold);font-family:var(--font-display);font-size:1.05rem">
+            📋 Seznam tras — všechny body, metry a azimuty (buzola)
+          </summary>
+          <div id="routes"></div>
+        </details>
 
         <div id="table-slot"><div class="spinner"></div></div>
       </div>
@@ -309,11 +319,46 @@
       }).join("");
     }
 
+    // --- 📋 seznam tras: všechny body + metry a azimuty k dalšímu bodu ---
+    function renderRoutes(teamsData) {
+      const el = $("routes");
+      if (!el) return;
+      el.innerHTML = teamsData.map((td, i) => {
+        const color = PALETTE[i % PALETTE.length];
+        const rows = td.points.map((pt, j) => {
+          const isFinal = j === td.points.length - 1;
+          const next = td.points[j + 1];
+          let navDist = "—", navAz = "—";
+          if (next) {
+            const b = Math.round(toMagnetic(bearingDeg(pt.lat, pt.lng, next.lat, next.lng)));
+            navDist = Math.round(distM(pt.lat, pt.lng, next.lat, next.lng)) + " m";
+            navAz = `${b}° ${compass(b)}`;
+          }
+          return `<tr${isFinal ? ' class="solved-row"' : ""}>
+            <td><strong>S${j + 1}</strong>${isFinal ? " 🏁" : ""}</td>
+            <td class="attempt-log">${pt.lat.toFixed(6)}, ${pt.lng.toFixed(6)}</td>
+            <td>${navDist}</td>
+            <td>${navAz === "—" ? "—" : `<strong style="color:var(--gold-bright)">${navAz}</strong>`}</td>
+          </tr>`;
+        }).join("");
+        return `
+          <div style="margin:14px 0">
+            <strong style="color:${color}">● ${esc(td.name)}</strong>
+            <code style="margin-left:8px">${esc(td.password || "")}</code>
+            <div class="table-scroll">
+            <table class="admin" style="margin-top:6px">
+              <thead><tr><th>Bod</th><th>Souřadnice</th><th>→ další bod</th><th>Azimut (buzola)</th></tr></thead>
+              <tbody>${rows}</tbody>
+            </table>
+            </div>
+          </div>`;
+      }).join("");
+    }
+
     // --- načtení dat ----------------------------------------------------
     async function load() {
       $("table-slot").innerHTML = '<div class="spinner"></div>';
       try {
-        await ensureAuth();
         let gameDoc = await getDoc(doc(db, "games", "stinadla"));
         let gameId, g;
         if (gameDoc.exists()) { gameId = gameDoc.id; g = gameDoc.data(); }
@@ -400,7 +445,7 @@
             : `<strong>${fmtMin(adjMin)}</strong>${p.finished ? "" : ' <span class="muted">(běží)</span>'}<br>
                <span class="muted" style="font-size:0.78rem">čistý ${fmtMin(rawMin)}${scoreParts.length ? " · " + scoreParts.join(" ") : ""}</span>`;
 
-          teamsData.push({ name: t.name || t.id, points: p.points, captures: caps });
+          teamsData.push({ name: t.name || t.id, password: t.password, points: p.points, captures: caps });
 
           // stav
           const status = p.finished
@@ -461,6 +506,7 @@
           </div>`;
 
         renderMap(teamsData);
+        renderRoutes(teamsData);
       } catch (e) {
         console.error(e);
         $("table-slot").innerHTML = `<div class="flash bad">Chyba načítání: ${esc(e.message)}</div>`;
